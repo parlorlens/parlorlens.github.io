@@ -41,8 +41,9 @@ HOOK = r"""<style>
 /* ParlorLens web app: offline cache, one-click updates, install, open .vd6 files. Not used when the file is opened from disk. */
 (function () {
   if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol)) return;
-  var reloading = false;
-  navigator.serviceWorker.addEventListener('controllerchange', function () { if (!reloading) { reloading = true; location.reload(); } });
+  // reload only after the user chose "Update now" — never on the first visit, when the offline cache first takes over
+  var updating = false, reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function () { if (updating && !reloading) { reloading = true; location.reload(); } });
   function offer(reg) {
     if (document.getElementById('pl-update') || !reg.waiting) return;
     fetch('version.json', { cache: 'no-store' }).then(function (r) { return r.json(); }).catch(function () { return {}; }).then(function (v) {
@@ -54,7 +55,7 @@ HOOK = r"""<style>
       bar.appendChild(msg);
       function btn(text, cls, fn) { var b = document.createElement('button'); b.type = 'button'; b.textContent = text; if (cls) b.className = cls; b.onclick = fn; bar.appendChild(b); }
       if (dirty && typeof saveVisit === 'function') btn('Save visit', '', function () { saveVisit(); });
-      btn('Update now', 'go', function () { if (reg.waiting) reg.waiting.postMessage('update-now'); });
+      btn('Update now', 'go', function () { if (reg.waiting) { updating = true; reg.waiting.postMessage('update-now'); } });
       btn('Later', '', function () { bar.remove(); });
       document.body.appendChild(bar);
     });
@@ -75,7 +76,12 @@ HOOK = r"""<style>
     if (document.getElementById('pl-install')) return;
     var row = document.querySelector('.topbar .row') || document.body;
     var b = document.createElement('button'); b.id = 'pl-install'; b.type = 'button'; b.className = 'btn sm'; b.textContent = 'Install app';
-    b.onclick = function () { e.prompt(); e.userChoice.then(function () { b.remove(); }); };
+    b.onclick = function () {
+      // installing opens ParlorLens in a new, empty window: an unsaved visit stays behind in this tab
+      if (typeof visitIsDirty === 'function' && visitIsDirty() &&
+          !confirm('Installing opens ParlorLens in a new window, which starts empty. Save your visit first (Visit → Save visit) to keep it. Install now anyway?')) return;
+      e.prompt(); e.userChoice.then(function () { b.remove(); });
+    };
     row.insertBefore(b, row.firstChild);
   });
   // installed on a laptop: double-clicking a .vd6 or .plvisit opens it here
@@ -137,5 +143,8 @@ self.addEventListener('fetch', e => {
     .then(hit => hit || fetch(req))));
 });
 """ % {"v": version, "assets": ", ".join("'./%s'" % a for a in ASSETS)}
+import hashlib
+build = hashlib.sha256(b"".join((out / f).read_bytes() for f in ["index.html", "version.json", "manifest.webmanifest"] + ASSETS)).hexdigest()[:12]
+SW = SW.replace("const CACHE = 'parlorlens-v%s';" % version, "const CACHE = 'parlorlens-v%s-%s';" % (version, build))
 (out / "sw.js").write_text(SW, encoding="utf-8")
 print("ParlorLens v%s web app written to %s" % (version, out))

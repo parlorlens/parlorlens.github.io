@@ -1,1 +1,1 @@
-Visit-wide farm report with full evidence; blank limits read as not assessed; reports keep recordings after marker edits.
+Install now warns to save an open visit first; no reload on first open.
