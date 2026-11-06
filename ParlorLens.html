@@ -650,6 +650,20 @@ td.n,th.n{text-align:right; font-family:var(--mono); font-variant-numeric:tabula
  --good:#12704f;--good-soft:#e0f0e8;--warn:#8a5a04;--warn-soft:#fbf0d9;--crit:#a62119;--crit-soft:#fbe6e4;--info-soft:#e8eef4;
  --ch1:#2266b8;--ch2:#cc4a08;--ch3:#009e87;--ch4:#8a3ffc;--r-smt:#1a5fd4;--r-spt:#1d8c39;--r-mpc:#d3261c;--r-mpc2:#111111}
 </style>
+<style>
+.pl-dialog{position:fixed;inset:0;z-index:300;background:rgba(8,18,28,.5);display:grid;place-items:center;padding:16px}
+.pl-dialog-box{background:var(--surface);color:var(--ink);max-width:520px;width:100%;border-radius:12px;padding:20px 22px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+.pl-dialog-box h3{margin:0 0 8px;font-size:1.15rem}
+.pl-dialog-box p{color:var(--ink-2);margin:0 0 10px;line-height:1.5}
+.pl-dialog-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:14px}
+.test-tile .tt-found{display:block;font-size:.78rem;font-weight:400;margin-top:3px}
+.test-tile .tt-found.ok{color:var(--good)}
+.test-tile .tt-found.na{color:var(--ink-3);font-style:italic}
+.visit-notes{display:block;margin-top:12px}
+.visit-notes textarea{width:100%;font-family:inherit;font-size:.9rem;min-height:70px;margin-top:4px}
+#cow-records > h3{margin-bottom:8px}
+#cow-records details{margin-top:12px}
+</style>
 </head>
 <body>
 <div class="topbar">
@@ -3897,7 +3911,7 @@ function saveIfConsented() {
   if (!S.consent) return;
   try {
     localStorage.setItem(LSKEY, JSON.stringify({
-      meta: S.meta, thresh: S.thresh, preset: S.preset, mapping: S.mapping, mappingSource: S.mappingSource, omRule: S.omRule, omRuleChosen: !!S.omRuleChosen, testType: S.testType, handMarkers: S.handMarkers, reviewed: S.reviewed,
+      meta: Object.assign({}, S.meta, { visitNotes: undefined }), thresh: S.thresh, preset: S.preset, mapping: S.mapping, mappingSource: S.mappingSource, omRule: S.omRule, omRuleChosen: !!S.omRuleChosen, testType: S.testType, handMarkers: S.handMarkers, reviewed: S.reviewed,
       owner: S.owner, partsMap: S.partsMap, linerLife: S.linerLife, history: S.history,
       savedBy: APP.version            // settings stored by v23 or later are never migrated again
     }));
@@ -6013,7 +6027,7 @@ function cowPanel(M) {
     el("span", { class: "pill " + (filled ? "ok" : "na"), text: filled ? filled + " of " + M.length + " milkings entered" : "optional" })
   ]));
   det.append(el("p", { class: "small muted", style: "margin:8px 0 12px", text:
-    "Adds the cow numbers to every finding, average milk flow per cow (VaDia Suite's formula: milk ÷ machine-on time), which cows the overmilking sits on, and a check that the vacuum markers follow milk flow. The yield figures are the farm's, not the logger's — they are labelled that way in the report." }));
+    "Enter the cow number and the milk the farm recorded for each milking, and a note if something happened (a kick-off, a hard milker, a treated cow). Cow numbers and notes appear in the farm report. The yield figures are the farm's, not the logger's — they are labelled that way in the report." }));
 
   const status = el("div", { class: "small", style: "margin-top:8px;min-height:1.2em" });
   const fileIn = el("input", { type: "file", accept: ".csv,.txt", style: "display:none" });
@@ -6021,7 +6035,7 @@ function cowPanel(M) {
     const f = fileIn.files[0]; if (!f) return;
     const fr = new FileReader();
     fr.onload = () => {
-      try { const msg = linkMTTExport(fr.result, f.name); refreshCowInfo(); setTimeout(() => { const s = $("#cowStatus"); if (s) s.textContent = msg; }, 0); }
+      try { const msg = keepCowNotes(() => linkMTTExport(fr.result, f.name)); refreshCowInfo(); setTimeout(() => { const s = $("#cowStatus"); if (s) s.textContent = msg; }, 0); }
       catch (e) { status.textContent = e.message; status.style.color = "var(--crit)"; }
     };
     fr.readAsText(f);
@@ -6034,7 +6048,7 @@ function cowPanel(M) {
   pasteWrap.append(
     el("div", { class: "small muted", style: "margin-bottom:6px", text: "One line per milking, in the order they were milked: cow number, then milk. Separate with a space, tab, comma or semicolon. Start a line with the attachment time (13:35:30) to match by time instead of order. Copying two columns straight from Excel works." }),
     ta, el("div", { class: "row", style: "margin-top:8px" }, el("button", { class: "btn", type: "button", text: "Use this list", onclick: () => {
-      S.cowInfo.unit = unitSel.value; const msg = applyPastedCowList(ta.value); refreshCowInfo();
+      S.cowInfo.unit = unitSel.value; const msg = keepCowNotes(() => applyPastedCowList(ta.value)); refreshCowInfo();
       setTimeout(() => { const s = $("#cowStatus"); if (s) s.textContent = msg; }, 0);
     } })));
 
@@ -6049,27 +6063,30 @@ function cowPanel(M) {
 
   // the grid
   const t = el("table", { class: "compact" });
-  t.append(el("thead", null, el("tr", null, ["#", "Attached", "Unit-on", "Cow no.", "Milk (" + yUnit() + ")", "Source"].map((h, i) => el("th", { class: i === 2 ? "n" : "", text: h })))));
+  t.append(el("thead", null, el("tr", null, ["#", "Attached", "Unit-on", "Cow no.", "Milk (" + yUnit() + ")", "Note", "Source"].map((h, i) => el("th", { class: i === 2 ? "n" : "", text: h })))));
   const tb = el("tbody");
   M.forEach((c, k) => tb.append(el("tr", null, [
     el("td", { text: String(c.n) }), el("td", { text: c.start }), el("td", { class: "n", text: hms(c.machineOn) }),
     el("td", null, el("input", { id: "mcow" + k, value: c.cow || "", inputmode: "numeric", "aria-label": "Cow number, milking " + c.n, style: "width:90px" })),
     el("td", null, el("input", { id: "myld" + k, value: c.yield != null ? String(c.yield) : "", inputmode: "decimal", "aria-label": "Milk, milking " + c.n, style: "width:80px" })),
+    el("td", null, el("input", { id: "mnote" + k, value: (S.cowInfo.rows[c.start] && S.cowInfo.rows[c.start].note) || "", "aria-label": "Note, milking " + c.n, placeholder: "note", style: "min-width:180px" })),
     el("td", { class: "small muted", text: c.yieldSrc || "" })
   ])));
   t.append(tb);
   det.append(el("div", { class: "tablewrap", style: "margin-top:12px" }, t));
-  det.append(el("div", { class: "row", style: "margin-top:10px" }, el("button", { class: "btn primary", type: "button", text: "Apply to the audit", onclick: () => {
+  det.append(el("div", { class: "row", style: "margin-top:10px" }, el("button", { class: "btn primary", type: "button", text: "Save cow records", onclick: () => {
     const next = {}; const bad = [];
     M.forEach((c, k) => {
       const cow = ($("#mcow" + k).value || "").trim(), ys = ($("#myld" + k).value || "").trim().replace(",", ".");
       const y = ys ? Number(ys) : null;
       const okY = !ys || (y > 0 && y < 100);
       if (!okY) bad.push(c.n);
-      if (!cow && (y == null || !okY)) return;
+      const note = ($("#mnote" + k).value || "").trim();
+      if (!cow && (y == null || !okY) && !note) return;
       const prev = S.cowInfo.rows[c.start];
       const same = prev && (prev.cow || "") === cow && prev.yield === y;
-      next[c.start] = { cow: cow || null, yield: okY ? y : null, src: same ? prev.src : "entered by hand" };
+      next[c.start] = { cow: cow || null, yield: okY ? y : null, src: !cow && (y == null || !okY) ? null : same ? prev.src : "entered by hand" };
+      if (note) next[c.start].note = note;
     });
     S.cowInfo.unit = unitSel.value; S.cowInfo.rows = next;
     logAudit("Cow numbers and milk yield entered", Object.keys(next).length + " milkings" + (bad.length ? "; milk not accepted on milking " + bad.join(", ") + " (must be between 0 and 100)" : ""));
@@ -6829,7 +6846,7 @@ function anatomySection(A) {
    before/after comparison, parlor view across units, WhatsApp summary.
    ========================================================================== */
 
-const APP = { name: "ParlorLens", version: "34", by: "Mohammad Murad", tagline: "See what your parlor does to every teat." };
+const APP = { name: "ParlorLens", version: "35", by: "Mohammad Murad", tagline: "See what your parlor does to every teat." };
 
 /* ------------------------------------------------------------ owner profile */
 const OWNER_DEFAULT = {
@@ -8769,17 +8786,22 @@ function renderRail(){
  $('#brandSub').textContent=(S.meta.farmName||'Farm visit')+' · v'+APP.version;
 }
 function go(id){
+ const areaBefore=UI.area;
  const aliases={conclusion:'results',farm:'visit',import:'visit',setup:'visit',testChoice:'visit',cowRecords:'visit',visitReport:'reports',recordingDetail:'reports',compareVisits:'tools',offer:'reports'};
  const toolIds=['markers','thresholds','channels','analysis','report','guide'];
  if(toolIds.includes(id)){UI.tool=id;UI.area='tools';}else{UI.area=aliases[id]||id;if(id==='compareVisits')UI.tool='compareVisits';if(id==='offer')UI.report='offer';if(id==='recordingDetail')UI.report='technical';}
- if(!VIEWS.some(v=>v.id===UI.area))UI.area='visit';S.view=UI.area;render();window.scrollTo({top:0,behavior:'instant'});
+ if(!VIEWS.some(v=>v.id===UI.area))UI.area='visit';S.view=UI.area;render();if(UI.area!==areaBefore)window.scrollTo({top:0,behavior:'instant'});
 }
 function pageHead(host,title,sub){host.append(el('div',{class:'page-head'},[el('h2',{text:title}),sub?el('p',{text:sub}):null]));}
 function render(){
+ const keepY=window.scrollY;
  if(!VIEWS.some(v=>v.id===S.view)){go(S.view);return;}UI.area=S.view;renderRail();const host=$('#views');host.replaceChildren();
  ({visit:viewVisitWorkspace,results:viewResultsWorkspace,reports:viewReportsWorkspace,tools:viewToolsWorkspace}[UI.area])(host);
  // Reused technician controls keep their behaviours but cannot create competing primary actions.
  host.querySelectorAll('.btn.primary:not(.shell-primary)').forEach(n=>n.classList.remove('primary'));
+ // a re-render keeps the reader where they were; a new recording glides to its setup
+ window.scrollTo({top:keepY,behavior:'instant'});
+ if(UI.scrollTo){const id=UI.scrollTo;UI.scrollTo=null;scrollToId(id);}
 }
 function primary(text,onclick){return el('button',{class:'btn primary shell-primary',type:'button',text,onclick});}
 function storageChoice(){
@@ -8800,7 +8822,7 @@ function boot(){
 }
 function acceptParse(r){
  S.testWins={};S.testSel={};S._swingFor=null;S._availFor=null;S._ptSuggested=false;S.fotCh=null;S.stCh=null;S.ptLabels={};
- if(r.signal){S.signal=r.signal;S.tables=null;S.visible=[true,true,true,true];S.auto=null;S.results=null;S.observedIncidents={};S.confirmedMilkings={};S.cowInfo={unit:'L',rows:{}};S.handMarkers={};S.reviewed={};S.markerKey=null;S.markerAuto={};S.mappingSource='default';S.setupComplete=false;S.setupChannelsConfirmed=false;S.testChosen=false;S.pendingCowExport=null;S.sessions=[];S.sessionIdx=0;S.markers={};const guess=autoIdentifyChannels();if(guess)S.mapping=guess.mapping;}
+ if(r.signal){UI.scrollTo='setup-panel';S.signal=r.signal;S.tables=null;S.visible=[true,true,true,true];S.auto=null;S.results=null;S.observedIncidents={};S.confirmedMilkings={};S.cowInfo={unit:'L',rows:{}};S.handMarkers={};S.reviewed={};S.markerKey=null;S.markerAuto={};S.mappingSource='default';S.setupComplete=false;S.setupChannelsConfirmed=false;S.testChosen=false;S.pendingCowExport=null;S.sessions=[];S.sessionIdx=0;S.markers={};const guess=autoIdentifyChannels();if(guess)S.mapping=guess.mapping;}
  else if(r.tables){S.tables=r.tables;S.signal=null;S.markers={};runAnalysis();}S.source=r.source;
  if(!VISIT.busy)go(r.signal?'visit':'analysis');
 }
@@ -8818,23 +8840,77 @@ function recordingSelector(){
  const select=el('select',{'aria-label':'Active recording'});for(const r of VISIT.records)select.append(el('option',{value:r.id,text:r.label}));select.value=VISIT.active;
  select.onchange=()=>{visitCapture();const r=VISIT.records.find(r=>r.id===select.value);VISIT.active=r.id;visitUse(r);render();};return el('label',{class:'recording-selector'},[document.createTextNode('Recording'),select]);
 }
+/** The app's own question box (the browser's confirm() is not used). buttons: [{label, primary, onClick}]; Escape chooses the last one. */
+function askDialog(o){
+ document.getElementById('pl-dialog')?.remove();
+ const box=el('div',{class:'pl-dialog-box',role:'alertdialog','aria-modal':'true','aria-labelledby':'pl-dialog-t'});
+ const ov=el('div',{id:'pl-dialog',class:'pl-dialog noprint'},box);
+ box.append(el('h3',{id:'pl-dialog-t',text:o.title}));
+ (Array.isArray(o.text)?o.text:[o.text]).filter(Boolean).forEach(t=>box.append(el('p',{text:t})));
+ const row=el('div',{class:'pl-dialog-actions'}),close=()=>ov.remove();
+ o.buttons.forEach(b=>row.append(el('button',{type:'button',class:'btn'+(b.primary?' primary shell-primary':''),text:b.label,onclick:()=>{close();if(b.onClick)b.onClick();}})));
+ box.append(row);document.body.append(ov);
+ ov.addEventListener('keydown',e=>{if(e.key==='Escape'){close();const last=o.buttons[o.buttons.length-1];if(last.onClick)last.onClick();}});
+ setTimeout(()=>(row.querySelector('.primary')||row.querySelector('button'))?.focus(),0);
+}
+function scrollToId(id){requestAnimationFrame(()=>document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'start'}));}
+
+/** What the file looks like for each test, before and after analysis. Milkings are counted with the engine's own finder. */
+function testsFound(){
+ const s=S.signal;if(!s)return {};
+ let A={};try{A=testAvailability()||{};}catch(e){}
+ let n=0;
+ if(S.auto&&!S.auto.error&&S.auto.milkings)n=S.auto.milkings.length;
+ else try{n=vdFindMilkings(smtLike(),s.fs,s.n).filter(m=>m.real!==false).length;}catch(e){n=0;}
+ return Object.assign({},A,{MTT:n?{ok:true,note:n+' milking'+(n>1?'s':'')}:{ok:false,note:'no milkings'}});
+}
+
+/** After "Confirm connections & run test": warn when a milking test finds no milkings; otherwise offer to enter cow records. */
+function afterAnalysis(){
+ if(!S.setupComplete)return;
+ const A=S.auto,mtt=(S.testType||'MTT')==='MTT';
+ if(mtt&&(!A||A.error||!A.milkings||!A.milkings.length||A.herd.notMTT)){
+  go('visit');
+  askDialog({title:'No milkings found in this recording',
+   text:[A&&A.herd&&A.herd.notMTT?'The mouthpiece taps move in step with the milk tube, so the cluster does not seem to have been on a cow.':'ParlorLens found no cluster attachment on the short milk tube (teat-end vacuum) channel.',
+    'Possible reasons: this file is a pulsator, fall-off or slug test; a channel is set to the wrong tap; or the logger was not on a cluster while cows were milked.'],
+   buttons:[{label:'Check the channels',primary:true,onClick:()=>scrollToId('setup-panel')},{label:'Show the results anyway',onClick:()=>go('results')}]});
+  return;
+ }
+ if(mtt&&!A.milkings.some(c=>c.cow||c.yield!=null)){
+  askDialog({title:A.milkings.length+' milking'+(A.milkings.length>1?'s':'')+' found',
+   text:['Do you want to enter the cow number and milk yield for each milking now? You can add a note to any milking too.','You can also do this later, under Visit.'],
+   buttons:[{label:'Enter cow records',primary:true,onClick:()=>{go('visit');scrollToId('cow-records');}},{label:'Later — show results',onClick:()=>go('results')}]});
+  return;
+ }
+ go('results');
+}
+
+/** An import or a pasted list replaces cow numbers and milk; notes typed for those milkings stay. */
+function keepCowNotes(fn){
+ const notes={};for(const [k,v] of Object.entries(S.cowInfo.rows||{}))if(v&&v.note)notes[k]=v.note;
+ const out=fn();
+ for(const [k,note] of Object.entries(notes))S.cowInfo.rows[k]=Object.assign(S.cowInfo.rows[k]||{cow:null,yield:null,src:null},{note});
+ return out;
+}
+
 function viewVisitWorkspace(host){
  pageHead(host,'Visit','Farm details, recordings and test setup in one place.');
  if(!UI.storageAsked){UI.storageAsked=true;host.append(storageChoice());}
  const row=el('div',{class:'shell-actions'},[el('button',{class:'btn',text:'New visit',onclick:newVisit}),el('button',{class:'btn',text:'Open saved visit',onclick:()=>{const f=el('input',{type:'file',accept:'.plvisit'});f.onchange=()=>f.files[0]&&openVisit(f.files[0]);f.click();}})]);if(VISIT.records.length)row.append(el('button',{class:'btn',text:'Save visit',onclick:saveVisit}));host.append(row);
  const farm=el('section',{class:'shell-panel'},el('h3',{text:'Farm'})),fields=el('div',{class:'shell-fields'});
- for(const [key,label,type] of [['farmName','Farm name','text'],['testDate','Test date','date'],['consultant','Tester','text']]){const input=el('input',{id:'f_'+key,type,value:S.meta[key]||''});input.oninput=()=>{S.meta[key]=input.value;};fields.append(el('label',null,[document.createTextNode(label),input]));}farm.append(fields);
+ for(const [key,label,type] of [['farmName','Farm name','text'],['testDate','Test date','date'],['consultant','Tester','text']]){const input=el('input',{id:'f_'+key,type,value:S.meta[key]||''});input.oninput=()=>{S.meta[key]=input.value;};fields.append(el('label',null,[document.createTextNode(label),input]));}farm.append(fields);const notes=el('textarea',{id:'f_visitNotes',rows:3,placeholder:'For example: liners changed three weeks ago; new milker on unit 2; cows restless at attachment'});notes.value=S.meta.visitNotes||'';notes.oninput=()=>{S.meta.visitNotes=notes.value;};farm.append(el('label',{class:'visit-notes'},[document.createTextNode('Visit notes — printed in the farm report'),notes]));
  const extra=el('details',null,el('summary',{text:'Additional farm and equipment details'})),temp=el('div');viewFarm(temp);temp.querySelectorAll('.page-head,.row.noprint').forEach(n=>n.remove());for(const key of ['farmName','testDate','consultant'])temp.querySelector('#f_'+key)?.parentElement?.remove();extra.append(temp);farm.append(extra);host.append(farm);
  const load=el('section',{class:'shell-panel'},el('h3',{text:'Recordings'})),input=el('input',{type:'file',multiple:true,accept:'.vd6,.vd5,.plvisit,.csv,.txt,.json','aria-label':'Add recording files'});input.onchange=()=>handleFiles(input.files);load.append(input,el('button',{class:'btn',text:'Load demo recording',onclick:()=>loadDemo()}));
  load.ondragover=e=>e.preventDefault();load.ondrop=e=>{e.preventDefault();handleFiles(e.dataTransfer.files);};host.append(load);
  if(!S.signal){host.append(el('p',{text:'Add a recording or load the demo to confirm channels and run a test.'}));return;}
  load.append(recordingSelector());if(S.source?.kind==='demo')load.append(el('p',{class:'note warn',text:'DEMO — synthetic data. Do not use this report for a farm assessment.'}));
- const setup=el('section',{class:'shell-panel'},[el('h3',{text:'Channels and test'}),el('p',{text:S.setupChannelsConfirmed?'These are the confirmed connections for this recording.':'Channel roles are waveform suggestions. Check them against the actual hose connections before running.'})]);
- const maps={};const grid=el('div',{class:'shell-fields'});for(let c=0;c<4;c++){const select=el('select',{'aria-label':'CH'+(c+1)+' connection'});ROLES.forEach(([value,text])=>select.append(el('option',{value,text})));select.value=S.mapping[c]||'OFF';maps[c]=select;select.onchange=()=>{S.mapping[c]=select.value;S.mappingSource='user';S._availFor=null;S.setupChannelsConfirmed=false;S.setupComplete=false;S.auto=null;visitCapture();};grid.append(el('label',null,[document.createTextNode('CH'+(c+1)),channelPreview(c),select]));}setup.append(grid);
+ const setup=el('section',{class:'shell-panel',id:'setup-panel'},[el('h3',{text:'Channels and test'}),el('p',{text:S.setupChannelsConfirmed?'These are the confirmed connections for this recording.':'Channel roles are waveform suggestions. Check them against the actual hose connections before running.'})]);
+ const maps={};const grid=el('div',{class:'shell-fields'});for(let c=0;c<4;c++){const select=el('select',{'aria-label':'CH'+(c+1)+' connection'});ROLES.forEach(([value,text])=>select.append(el('option',{value,text})));select.value=S.mapping[c]||'OFF';maps[c]=select;select.onchange=()=>{S.mapping[c]=select.value;S.mappingSource='user';S._availFor=null;S.setupChannelsConfirmed=false;S.setupComplete=false;S.auto=null;visitCapture();render();};grid.append(el('label',null,[document.createTextNode('CH'+(c+1)),channelPreview(c),select]));}setup.append(grid);
  const test=el('select',{'aria-label':'Test to run'});TESTS.forEach(([value,text])=>test.append(el('option',{value,text:value+' — '+text})));test.value=S.testType||'MTT';test.onchange=()=>{S.testType=test.value;S.testChosen=true;S.setupComplete=false;visitCapture();};
- const ref=el('select',{'aria-label':'Reference settings'});[['keep','Keep current / custom settings'],['suite','VaDia Suite defaults'],['guide','VaDia wet-testing guide']].forEach(([value,text])=>ref.append(el('option',{value,text})));ref.value=UI.reference;ref.onchange=()=>{UI.reference=ref.value;};const testTiles=el('div',{class:'test-tiles',role:'group','aria-label':'Choose a test'});for(const [value,title] of TESTS){const b=el('button',{type:'button',class:'test-tile','aria-pressed':String(value===test.value),text:value+' — '+title,onclick:()=>{test.value=value;test.dispatchEvent(new Event('change'));for(const x of testTiles.children)x.setAttribute('aria-pressed',String(x===b));}});testTiles.append(b);}setup.append(testTiles,el('label',{class:'test-select-fallback'},[document.createTextNode('Test'),test]),el('label',null,[document.createTextNode('Reference settings'),ref]));
- const run=primary('Confirm connections & run test',()=>{if(!Object.values(maps).some(s=>s.value!=='OFF')){alert('Assign at least one connected channel.');return;}S.setupChannelsConfirmed=true;S.mappingSource='user';S.testType=test.value;S.testChosen=true;S._ptSuggested=true;run.disabled=true;run.textContent='Analysing…';setTimeout(()=>{finishSetup(ref.value);if(S.setupComplete)go('results');},0);});setup.append(run);host.append(setup);
- if(S.auto&&!S.auto.error){const records=el('details',{class:'shell-panel'},el('summary',{text:'Cow records and field observations (optional)'}));if(['MTT','MRT'].includes(S.testType))records.append(cowPanel(S.auto.milkings));records.append(observedIncidentsPanel());host.append(records);}
+ const ref=el('select',{'aria-label':'Reference settings'});[['keep','Keep current / custom settings'],['suite','VaDia Suite defaults'],['guide','VaDia wet-testing guide']].forEach(([value,text])=>ref.append(el('option',{value,text})));ref.value=UI.reference;ref.onchange=()=>{UI.reference=ref.value;};const found=testsFound(),testTiles=el('div',{class:'test-tiles',role:'group','aria-label':'Choose a test'});for(const [value,title] of TESTS){const f=found[value]||{ok:false,note:''};const b=el('button',{type:'button',class:'test-tile','aria-pressed':String(value===test.value),onclick:()=>{test.value=value;test.dispatchEvent(new Event('change'));render();}},[document.createTextNode(value+' — '+title),el('span',{class:'tt-found '+(f.ok?'ok':'na'),text:(f.ok?'Found: ':'Not found: ')+f.note})]);testTiles.append(b);}setup.append(testTiles,...(test.value==='MTT'&&!found.MTT.ok?[el('p',{class:'note warn',text:'No milkings were found in this file. If it is a milking-time test, check the channels above: the short milk tube (teat-end vacuum) tap must be set to the right channel. Otherwise choose the test this file was recorded for.'})]:[]),el('label',{class:'test-select-fallback'},[document.createTextNode('Test'),test]),el('label',null,[document.createTextNode('Reference settings'),ref]));
+ const run=primary('Confirm connections & run test',()=>{if(!Object.values(maps).some(s=>s.value!=='OFF')){alert('Assign at least one connected channel.');return;}S.setupChannelsConfirmed=true;S.mappingSource='user';S.testType=test.value;S.testChosen=true;S._ptSuggested=true;run.disabled=true;run.textContent='Analysing…';setTimeout(()=>{finishSetup(ref.value);afterAnalysis();},0);});setup.append(run);host.append(setup);
+ if(S.auto&&!S.auto.error){const records=el('section',{class:'shell-panel',id:'cow-records'},el('h3',{text:'Cows, milk and notes'}));if(['MTT','MRT'].includes(S.testType)){const cp=cowPanel(S.auto.milkings);cp.open=true;records.append(cp);}const obs=el('details',null,el('summary',{text:'Slips and fall-offs seen during milking (optional)'}));obs.append(observedIncidentsPanel());records.append(obs);host.append(records);}
 }
 function viewResultsWorkspace(host){
  if(!S.signal||!S.setupComplete){pageHead(host,'Results','Confirm the recording setup in Visit to calculate results.');host.append(primary('Set up visit',()=>go('visit')));return;}
@@ -8857,13 +8933,13 @@ function viewReportsWorkspace(host){
  const choose=el('select',{'aria-label':'Report audience'});[['farm','Farm report'],['technical','Technical report'],['methods','Methods & audit trail'],['offer','Commercial offer']].forEach(([value,text])=>choose.append(el('option',{value,text})));choose.value=UI.report;choose.onchange=()=>{UI.report=choose.value;render();};host.append(choose);
  if(!VISIT.records.length){host.append(el('p',{text:'Add and analyse a recording in Visit first.'}));return;}
  if(UI.report==='technical'){const traces=el('input',{type:'checkbox',checked:!!VISIT.selection['technical-traces']});traces.onchange=()=>{VISIT.selection['technical-traces']=traces.checked;render();};host.append(el('label',{class:'report-choice noprint'},[traces,el('span',{text:'Include a vacuum trace for every milking (longer report)'})]));}
- reportActions(host);const root=el('div',{class:'report audience-report'});host.append(root);reportHeader(root,{farm:'Farm report',technical:'Technical report',methods:'Methods & audit trail',offer:'Commercial offer'}[UI.report]);
+ reportActions(host);const root=el('div',{class:'report audience-report'});host.append(root);if(UI.report==='farm')farmReportHeader(root);else reportHeader(root,{farm:'Farm report',technical:'Technical report',methods:'Methods & audit trail',offer:'Commercial offer'}[UI.report]);
  if(UI.report==='offer'){if(!S.auto||S.auto.error){root.append(el('p',{text:'Analyse a recording before preparing an offer.'}));return;}root.append(partsSection(S.auto)||el('p',{text:'No parts proposal is available.'}),printFooter());return;}
  let analysed=0,milkingCount=0;const provisional=[],unready=[];visitSync(()=>{for(const r of VISIT.records){visitUse(r);if(!recordingReady(S))unready.push(r.label);else {analysed++;if(S.auto&&!S.auto.error){milkingCount+=S.auto.milkings.length;if(!reportStatus(S.auto).final)provisional.push(r.label);}}}});
- root.append(visitCoverage(analysed,milkingCount));if(UI.report==='farm'&&visitMetrics().length&&VISIT.records.filter(r=>r.state.setupComplete&&r.state.auto&&!r.state.auto.error&&!r.state.auto.herd.notMTT).length>1)root.append(...combinedVisitSections());
- root.append(el('p',{class:provisional.length||unready.length?'report-status note warn':'report-status note',text:(provisional.length?'Provisional — review remains open for '+provisional.join(', ')+'. ':'')+(unready.length?'Not analysed / excluded: '+unready.join(', ')+'. ':'')+(!provisional.length&&!unready.length?'Review checks complete. ':'')+'Vacuum patterns suggest possible causes, not proof of poor preparation, milk-flow bimodality or confirmed slips. See Methods & audit trail for rules and validation limits.'}));
+ root.append(visitCoverage(analysed,milkingCount));const mttUnits=VISIT.records.filter(r=>r.state.setupComplete&&r.state.auto&&!r.state.auto.error&&!r.state.auto.herd.notMTT).length;if(UI.report==='farm'){if((S.meta.visitNotes||'').trim())root.append(visitNotesSection());if(mttUnits>1)root.append(plainUnitsTable());}else if(UI.report==='technical'&&visitMetrics().length&&mttUnits>1)root.append(...combinedVisitSections());
+ if(UI.report==='farm'){if(provisional.length||unready.length)root.append(el('p',{class:'report-status note warn',text:(provisional.length?'Preliminary: some milkings in '+provisional.join(', ')+' have not been checked by the consultant yet, so figures may still change a little. ':'')+(unready.length?'Not included in this report: '+unready.join(', ')+'.':'')}));}else root.append(el('p',{class:provisional.length||unready.length?'report-status note warn':'report-status note',text:(provisional.length?'Provisional — review remains open for '+provisional.join(', ')+'. ':'')+(unready.length?'Not analysed / excluded: '+unready.join(', ')+'. ':'')+(!provisional.length&&!unready.length?'Review checks complete. ':'')+'Vacuum patterns suggest possible causes, not proof of poor preparation, milk-flow bimodality or confirmed slips. See Methods & audit trail for rules and validation limits.'}));
  if(VISIT.records.some(r=>r.state.source?.kind==='demo'))root.append(el('p',{class:'note crit',text:'DEMO — SYNTHETIC DATA. This report is for demonstration only.'}));
- visitSync(()=>{for(const r of VISIT.records){visitUse(r);const A=S.auto;if(!recordingReady(S))continue;const sec=el('section',{class:'record-report'},[el('h2',{text:r.label+' · '+testName(S.testType)}),el('p',{class:'small',text:'Recording ID: '+r.id.slice(0,12)+(A&&!A.error&&A.milkings?' · '+A.milkings.length+' detected milkings':'')})]);root.append(sec);
+ visitSync(()=>{for(const r of VISIT.records){visitUse(r);const A=S.auto;if(!recordingReady(S))continue;const sec=el('section',{class:'record-report'},[el('h2',{text:r.label+' · '+testName(S.testType)}),el('p',{class:'small',text:(UI.report==='farm'?(S.signal?dateOf(S.signal.t0):''):'Recording ID: '+r.id.slice(0,12))+(A&&!A.error&&A.milkings?' · '+A.milkings.length+(UI.report==='farm'?' milkings':' detected milkings'):'')})]);root.append(sec);
  if(UI.report==='methods'){const temp=el('div');viewMTT(temp);const method=[...temp.querySelectorAll('.atab')].find(n=>/Method and references/.test(n.querySelector('.atab-title')?.textContent||''));if(method){method.classList.remove('off');method.querySelectorAll('.noprint').forEach(n=>n.remove());for(const section of method.querySelectorAll('.rsec'))if(section.querySelector('h2')?.textContent==='Audit trail')section.remove();sec.append(method);}else sec.append(el('p',{text:'No milking-method appendix available for this recording.'}));continue;}
  if(S.testType!=='MTT'){const temp=el('div');({PT:viewPT,FOT:viewFOT,MPE:viewMPE,ST:viewST,MRT:viewMRT}[S.testType]||viewPT)(temp);temp.querySelectorAll('.noprint').forEach(n=>n.remove());sec.append(temp);continue;}
  if(A.herd.notMTT){sec.append(el('p',{text:'This recording is not suitable for milking performance assessment.'}));continue;}
@@ -8873,15 +8949,79 @@ function viewReportsWorkspace(host){
  if(UI.report==='methods')root.append(rsecA('Session audit trail',''),tableOf(['Time','Action','Detail'],AUDIT.map(a=>[clockOf(a.t),a.step,cleanReportText(a.detail)])));
  root.append(printFooter());const bottom=el('div',{class:'shell-actions noprint'},[el('button',{class:'btn',text:'Print / Save PDF',onclick:()=>window.print()}),el('button',{class:'btn',text:'Export Word',onclick:exportWordReport})]);host.append(bottom);
 }
-/** Farm report for one recording: the full farm write-up — result, findings and action plan first,
-    then the graphs that explain preparation, liner fit, overmilking, bimodal starts and pulsation — and the fluctuation evidence.
-    Nothing is trimmed; "About this report" is said once, at the end of the whole report. */
-let FARM_ABOUT=null;
-function farmAudienceReport(sec,A,r){
- farmManagerReport(A).forEach(s=>{if(/^About this report/.test(s.querySelector('h2')?.textContent||'')){if(!FARM_ABOUT)FARM_ABOUT=s;return;}sec.append(s);});
- sec.append(fluctuationEvidence(A,r.label));
+/** FARM REPORT — plain language for the farm owner: the result, what to do, the graphs from this farm and the cows.
+    Built from the same farm write-up as the Technical report, without the literature, method notes and IDs,
+    which stay in the Technical report and in Methods & audit trail. No figure or rule is added here. */
+const PLAIN_KEEP=[['At a glance','Result'],['What we found',null],["Where the unit's time went",null],['Preparation and let-down',null],['Liner quality',null],
+ ['Overmilking',null],['Bimodal milking pattern',null],['Pulsation',null],['Cow by cow','Cow by cow'],['Action plan',null]];
+const PLAIN_SOURCE=/et al\.|Penn State|Extension\b|DAIReXNET|Rønningen|Postma|\bMein\b|Becker|Stewart|Chearbhaill|Fernandes|ISO\s?\d|VaDia Suite rule|VaDia manual|manual's|VaDia (?:2|Suite) guide|\bin the studies cited\b/;
+/** remove references to sources and method notes, keeping the advice: first the citing phrases, then any sentence that is only about a source or a rule */
+const PLAIN_METHOD=/No published threshold|Not enough documented information|Expert review required|user-defined threshold|labelled as such|VaDia's rule|cannot report less than/;
+function plainText(root){
+ const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),nodes=[];let n;while((n=w.nextNode()))nodes.push(n);
+ const W="[A-ZÍØÉÚ][^\\s,.;()]*",NAME=W+"(?:\\s+"+W+")?(?:\\s+(?:&|and)\\s+"+W+")?";
+ for(const t of nodes){
+  let s=t.nodeValue
+   .replace(/\s*\((?=[^()]*(?:et al\.|Extension|ISO|DAIReXNET|manual|guide|Suite|Postma|Mein|Becker|Stewart|Rønningen|Chearbhaill|Fernandes|Thresholds|\b(?:19|20)\d\d\b))[^()]*\)/g,'')
+   .replace(new RegExp(",?\\s+(?:in|by|from|according to)\\s+(?:the studies cited by\\s+)?"+NAME+"\\s+et al\\.?\\s*\\d{4}","g"),'')
+   .replace(new RegExp("(^|[.!?]\\s+)In\\s+"+NAME+"\\s+et al\\.?\\s*\\d{4},\\s*([a-z])","g"),(m,a,b)=>a+b.toUpperCase())
+   .replace(/\s+in the same study/g,'').replace(/\s*[—-]\s*VaDia 2 guide/g,'')
+   .replace(/\s*—\s*the unit's median plus the slow let-down rule set under Thresholds/g,'');
+  if(PLAIN_SOURCE.test(s)||PLAIN_METHOD.test(s)){
+   const safe=s.replace(/et al\./g,'et al§').replace(/(\d)\.(\d)/g,'$1¤$2');
+   s=(safe.match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)\s*/g)||[safe]).filter(x=>!PLAIN_SOURCE.test(x.replace(/§/g,'.'))&&!PLAIN_METHOD.test(x)).join('').replace(/§/g,'.').replace(/¤/g,'.').trim();
+  }
+  t.nodeValue=s;
+ }
 }
-function farmReportClose(){const s=FARM_ABOUT||rsecA('About this report','');FARM_ABOUT=null;s.append(contactBlock());return s;}
+function plainSection(s,title){
+ s.querySelectorAll('.helpbtn,.howto,.noprint,.note,.small.muted,p.small').forEach(n=>n.remove());
+ // evidence sections open with background reading; the farm copy starts at the first picture from this farm
+ const fig=s.querySelector(':scope > .fig, :scope > .figpair, :scope > .figgrid, :scope > .pbars');
+ if(fig&&!/^(At a glance|What we found|Where the unit|Cow by cow|Action plan)/.test(title)){
+  const keep=s.querySelector(':scope > h2'),sub=keep&&keep.nextElementSibling&&keep.nextElementSibling.matches('p.muted')?keep.nextElementSibling:null;
+  let x=keep?keep.nextElementSibling:null;while(x&&x!==fig){const nx=x.nextElementSibling;if(x!==sub)x.remove();x=nx;}
+ }
+ plainText(s);
+ s.querySelectorAll('p,dd').forEach(p=>{if(!p.textContent.trim()){if(p.matches('dd')&&p.previousElementSibling&&p.previousElementSibling.matches('dt'))p.previousElementSibling.remove();p.remove();}});
+ return s;
+}
+/** the farmer's own notes, next to each cow */
+function addCowNotes(s){
+ const rows=S.cowInfo&&S.cowInfo.rows||{},byN={};(S.auto&&S.auto.milkings||[]).forEach(c=>{const r=rows[c.start];if(r&&r.note)byN[String(c.n)]=r.note;});
+ s.querySelectorAll('tbody tr').forEach(tr=>{const note=byN[tr.cells[0]&&tr.cells[0].textContent.replace(/\D.*$/,'')];if(!note)return;const last=tr.cells[tr.cells.length-1];last.textContent=(last.textContent==='nothing to note'?'':last.textContent+' · ')+'Note: '+note;});
+}
+function farmAudienceReport(sec,A,r){
+ for(const s of farmManagerReport(A)){
+  const t=s.querySelector('h2')?.textContent||'',keep=PLAIN_KEEP.find(([k])=>t.indexOf(k)===0);
+  if(!keep)continue;
+  plainSection(s,t);if(keep[1])s.querySelector('h2').textContent=keep[1];
+  if(/^Where the unit/.test(t))s.querySelectorAll(':scope > p:not(.muted)').forEach((p,i)=>{if(i>0)p.remove();});
+  if(/^Cow by cow/.test(t))addCowNotes(s);
+  sec.append(s);
+ }
+}
+function farmReportHeader(root){
+ const o=owner();
+ root.append(el('header',{class:'audience-cover'},[el('h1',{text:(S.meta.farmName||'Farm visit')+' — Farm report'}),
+  el('p',{text:[S.meta.testDate?'Visit '+S.meta.testDate:null,o.name?'Prepared by '+o.name:null,o.company||null].filter(Boolean).join(' · ')})]));
+}
+function visitNotesSection(){const s=rsecA('Notes from the visit','');String(S.meta.visitNotes||'').split(/\n+/).map(x=>x.trim()).filter(Boolean).forEach(x=>s.append(el('p',{text:x})));return s;}
+/** each unit's own medians, side by side — the engine's figures, nothing pooled or recalculated */
+function plainUnitsTable(){
+ const V={ok:'In range',warn:'Some results outside the reference',crit:'Action needed'};
+ const rows=visitSync(()=>VISIT.records.map(r=>{visitUse(r);const A=S.auto;if(!S.setupComplete||!A||A.error||A.herd.notMTT)return null;const H=A.herd;
+  return [r.label,String(A.milkings.length),hms(H.machineOn),H.overmilk!=null?hms(H.overmilk):'—',H.smtPF!=null?fmt(H.smtPF)+' kPa':'—',V[A.verdict]||'—'];}).filter(Boolean));
+ const s=rsecA('Units side by side','Median for each unit on the day of the visit');
+ s.append(tableOf(['Unit','Milkings','Unit-on time','Overmilking','Teat-end vacuum','Result'],rows));return s;
+}
+function farmReportClose(){
+ const s=rsecA('About this report','');
+ s.append(el('p',{text:'Each recording was taken with one vacuum logger on one milking unit, so the results describe that unit on the day of the visit. Milk flow is not measured directly; it is read from the vacuum. The technical report gives the full detail behind every figure.'}),contactBlock());
+ // the contact block credits the manual and "the references listed in this report"; the farm report lists none
+ const w=document.createTreeWalker(s,NodeFilter.SHOW_TEXT);let n;while((n=w.nextNode()))n.nodeValue=n.nodeValue.replace(/ — vacuum recordings from BioControl VaDia loggers, analysed by the rules in the VaDia Suite manual and the references listed in this report\./,' from BioControl VaDia vacuum recordings.');
+ return s;
+}
 
 function technicalAudienceReport(sec,A){
  sec.append(phaseReferenceOverlay(A.herd.puls,!reportStatus(A).final));sec.append(tableOf(['Milking','Unit on (s)','Let-down (s)','Overmilking (s)','Peak vacuum (kPa)','Type 1 / 2 during milking','Timing eligibility'],A.milkings.map(c=>[mLabel(c),fmt(c.machineOn),fmt(c.letdown),fmt(c.overmilk),fmt(c.smtPF),fmt(c.ivf1M,0)+' / '+fmt(c.ivf2M,0),metricEligible(c,'machineOn')?'Eligible':'Excluded'])));
@@ -8889,6 +9029,8 @@ function technicalAudienceReport(sec,A){
  if(A.rejected?.length)sec.append(el('h3',{text:'Attachment periods and operator decisions'}),tableOf(['Start','Decision','Reason'],A.rejected.map(c=>[c.start||clockAt(c.att),c.included?'Included by operator; timing excluded':'Not included',(c.why||[]).join('; ')])));
  if(VISIT.selection['technical-traces'])for(const c of A.milkings){const i0=Math.max(0,c.att),i1=Math.min(S.signal.n-1,c.end);if(i1>i0)sec.append(figTrace({i0,i1,xFrom:i0,chs:['SMT','MPC','SPT'],height:250,title:'Milking '+mLabel(c),phases:milkingPhases({attach:c.att,peakStart:c.pf,overmilkStart:c.om1,takeoff:c.to,end:c.end}),caption:'Timing eligibility: '+(metricEligible(c,'machineOn')?'eligible':'excluded')+'. '+(needsReview(c)&&!validReview(c)?'Marker review pending.':'')}));}
  const histories=(S.history||[]).filter(h=>h.farm===S.meta.farmName&&h.unit===S.meta.unitLabel);if(histories.length>=2)sec.append(el('h3',{text:'Saved before / after comparison — same farm and unit label'}),comparisonTable(histories.at(-2),histories.at(-1)));
+ // the full written explanation, with its literature and method notes, lives here rather than in the farm report
+ farmManagerReport(A).forEach(s=>sec.append(s));sec.append(fluctuationEvidence(A,(VISIT.records.find(x=>x.state.signal===S.signal)||{}).label||'This recording'));
 }
 /** Thresholds are kept per recording. Say which recording they belong to, and offer the same references for the whole visit. */
 function viewThresholdsForVisit(host){
@@ -8906,12 +9048,16 @@ function viewToolsWorkspace(host){
 }
 
 /* Read-only waveform preview: no marker, threshold or analysis changes. */
+/* Read-only preview of one tap: five seconds during the first milking (or the start of the file), 0 to 60 kPa, in the colour of the role chosen for it. */
 function channelPreview(c){
- const a=S.signal?.ch[c];if(!a?.length)return el('span',{text:'No signal'});
- const width=300,height=56,step=Math.max(1,Math.ceil(a.length/width));let points=[];
- for(let x=0;x<width;x++){const first=x*step;if(first>=a.length)break;let max=-Infinity;for(let i=first;i<Math.min(a.length,first+step);i++)if(Number.isFinite(a[i]))max=Math.max(max,a[i]);if(Number.isFinite(max))points.push(x+','+(height-4-Math.max(0,Math.min(60,max))/60*(height-8)));}
- const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 300 56');svg.setAttribute('class','channel-preview');svg.setAttribute('role','img');svg.setAttribute('aria-label','Channel '+(c+1)+' whole-recording overview, 0 to 60 kPa; use Advanced channels for detail');
- const line=document.createElementNS(svg.namespaceURI,'polyline');line.setAttribute('points',points.join(' '));line.setAttribute('fill','none');line.setAttribute('stroke',['#2378b9','#b06a14','#27835e','#9759a6'][c]);line.setAttribute('stroke-width','1.5');svg.append(line);return svg;
+ const s=S.signal,a=s?.ch[c];if(!a?.length)return el('span',{text:'No signal'});
+ if(S._pvFor!==s){S._pvFor=s;let i0=0;try{const m=vdFindMilkings(smtLike(),s.fs,s.n).find(m=>m.real!==false);if(m)i0=Math.min(s.n-1,m.att+60*s.fs);}catch(e){}S._pvWin=[i0,Math.min(s.n,i0+5*s.fs)];}
+ const [i0,i1]=S._pvWin,width=300,height=56,n=Math.max(1,i1-i0),points=[];
+ for(let x=0;x<width;x++){const j0=i0+Math.floor(x/width*n),j1=Math.max(j0+1,i0+Math.floor((x+1)/width*n));let mx=-Infinity;for(let i=j0;i<j1&&i<a.length;i++)if(Number.isFinite(a[i]))mx=Math.max(mx,a[i]);if(Number.isFinite(mx))points.push(x+','+(height-4-Math.max(0,Math.min(60,mx))/60*(height-8)).toFixed(1));}
+ const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 300 56');svg.setAttribute('class','channel-preview');svg.setAttribute('role','img');
+ svg.setAttribute('aria-label','Channel '+(c+1)+': five seconds of the recording, 0 to 60 kPa. Use Tools, Advanced channels for detail.');
+ const line=document.createElementNS(svg.namespaceURI,'polyline');line.setAttribute('points',points.join(' '));line.setAttribute('fill','none');
+ line.setAttribute('stroke',cssVar(chColVar(c))||['#2378b9','#b06a14','#27835e','#9759a6'][c]);line.setAttribute('stroke-width','1.5');svg.append(line);return svg;
 }
 
 boot();

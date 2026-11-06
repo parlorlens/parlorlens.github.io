@@ -1,1 +1,1 @@
-Clearer update message, demo shows overmilking, readable warnings in dark mode.
+Asks for cow numbers, milk and notes after each analysis; warns when a file has no milkings; simpler farm report.
