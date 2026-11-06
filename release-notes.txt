@@ -1,1 +1,1 @@
-Install now warns to save an open visit first; no reload on first open.
+Clearer update message, demo shows overmilking, readable warnings in dark mode.

@@ -643,7 +643,14 @@ td.n,th.n{text-align:right; font-family:var(--mono); font-variant-numeric:tabula
 }
 @media(max-width:650px){main{padding:12px}.rail{padding:8px}.railbtn{gap:6px;font-size:12px;padding:8px}.test-tiles{grid-template-columns:1fr 1fr}.shell-panel{padding:16px}}
 @media print{.channel-preview,.test-tiles,.test-select-fallback{display:none!important}}
-</style></head>
+</style><style>
+.gauge-dashboard,.dash-panel,.dash-gauges,.audience-report,.dash-attention{color-scheme:light;
+ --ground:#eef2f6;--surface:#ffffff;--surface-2:#f6f9fc;--surface-3:#e7edf3;--line:#ccd8e2;--line-soft:#e2eaf1;
+ --ink:#0e1c2a;--ink-2:#3d5163;--ink-3:#6b7f91;--accent:#0b5fa5;--accent-deep:#073c68;--accent-soft:#e4eef7;
+ --good:#12704f;--good-soft:#e0f0e8;--warn:#8a5a04;--warn-soft:#fbf0d9;--crit:#a62119;--crit-soft:#fbe6e4;--info-soft:#e8eef4;
+ --ch1:#2266b8;--ch2:#cc4a08;--ch3:#009e87;--ch4:#8a3ffc;--r-smt:#1a5fd4;--r-spt:#1d8c39;--r-mpc:#d3261c;--r-mpc2:#111111}
+</style>
+</head>
 <body>
 <div class="topbar">
   <div class="brand">
@@ -1269,8 +1276,9 @@ function buildDemo() {
       const flow = el < 25 ? el / 25 : el < 90 ? 1 : el < 300 ? 1 - (el - 90) / 260 : 0.05;
       const bimodal = el > 12 && el < 28 ? 2.4 * Math.sin((el - 12) / 16 * Math.PI) : 0;   // delayed letdown dip
       smt = work - 7.5 * flow + bimodal + (cyc < 0.63 ? -1.1 : 1.1) * (0.6 + 0.5 * flow);
-      mpc = 18 + 9 * flow + (cyc < 0.63 ? -1.2 : 1.2);
-      mpc2 = 21 + 7 * flow + (cyc < 0.63 ? -1.0 : 1.0);
+      const om = el > 300 ? Math.min(1, (el - 300) / 6) : 0;          // quarter empty: the liner climbs, mouthpiece vacuum rises
+      mpc = 18 + 5 * flow + 15 * om + (cyc < 0.63 ? -1.2 : 1.2);
+      mpc2 = 21 + 4 * flow + 13 * om + (cyc < 0.63 ? -1.0 : 1.0);
       if (el > 250 && el < 252.4) { smt -= 16 * Math.sin((el - 250) / 2.4 * Math.PI); mpc -= 9; }  // slip event
     }
     ch[1][i] = smt + (Math.random() - 0.5) * 0.3;
@@ -2815,7 +2823,7 @@ function viewImport(host) {
   p.append(el("div", { class: "row", style: "margin-top:12px" }, [
     el("button", { class: "btn", type: "button", text: "Paste data instead", onclick: () => $("#pasteWrap").hidden = !$("#pasteWrap").hidden }),
     // the demo goes through the same reset as any other recording, so nothing from the previous file carries over
-    el("button", { class: "btn", type: "button", text: "Load demo recording", onclick: () => acceptParse(buildDemo()) })
+    el("button", { class: "btn", type: "button", text: "Load demo recording", onclick: () => loadDemo() })
   ]));
 
   const pw = el("div", { id: "pasteWrap", hidden: true, style: "margin-top:12px" });
@@ -6821,7 +6829,7 @@ function anatomySection(A) {
    before/after comparison, parlor view across units, WhatsApp summary.
    ========================================================================== */
 
-const APP = { name: "ParlorLens", version: "33", by: "Mohammad Murad", tagline: "See what your parlor does to every teat." };
+const APP = { name: "ParlorLens", version: "34", by: "Mohammad Murad", tagline: "See what your parlor does to every teat." };
 
 /* ------------------------------------------------------------ owner profile */
 const OWNER_DEFAULT = {
@@ -8796,6 +8804,8 @@ function acceptParse(r){
  else if(r.tables){S.tables=r.tables;S.signal=null;S.markers={};runAnalysis();}S.source=r.source;
  if(!VISIT.busy)go(r.signal?'visit':'analysis');
 }
+/** Load the demo, or open it if this visit already has one. */
+function loadDemo(){const r=VISIT.records.find(x=>x.state&&x.state.source&&x.state.source.kind==='demo');if(r){visitSwitch(r.id);return;}addParsedRecording(buildDemo());}
 async function addParsedRecording(parsed){
  visitCapture();const id='import-'+Date.now().toString(16)+'-'+Math.random().toString(16).slice(2,10);VISIT.active=null;acceptParse(parsed);
  const r={id,label:parsed.source?.kind==='demo'?'DEMO — synthetic recording':'Imported recording '+(VISIT.records.length+1),name:parsed.source?.name||'Imported data',state:visitSnapshot()};VISIT.records.push(r);VISIT.active=id;S.meta.unitLabel=r.label;VISIT.saved=false;visitCapture();go('visit');
@@ -8815,7 +8825,7 @@ function viewVisitWorkspace(host){
  const farm=el('section',{class:'shell-panel'},el('h3',{text:'Farm'})),fields=el('div',{class:'shell-fields'});
  for(const [key,label,type] of [['farmName','Farm name','text'],['testDate','Test date','date'],['consultant','Tester','text']]){const input=el('input',{id:'f_'+key,type,value:S.meta[key]||''});input.oninput=()=>{S.meta[key]=input.value;};fields.append(el('label',null,[document.createTextNode(label),input]));}farm.append(fields);
  const extra=el('details',null,el('summary',{text:'Additional farm and equipment details'})),temp=el('div');viewFarm(temp);temp.querySelectorAll('.page-head,.row.noprint').forEach(n=>n.remove());for(const key of ['farmName','testDate','consultant'])temp.querySelector('#f_'+key)?.parentElement?.remove();extra.append(temp);farm.append(extra);host.append(farm);
- const load=el('section',{class:'shell-panel'},el('h3',{text:'Recordings'})),input=el('input',{type:'file',multiple:true,accept:'.vd6,.vd5,.plvisit,.csv,.txt,.json','aria-label':'Add recording files'});input.onchange=()=>handleFiles(input.files);load.append(input,el('button',{class:'btn',text:'Load demo recording',onclick:()=>addParsedRecording(buildDemo())}));
+ const load=el('section',{class:'shell-panel'},el('h3',{text:'Recordings'})),input=el('input',{type:'file',multiple:true,accept:'.vd6,.vd5,.plvisit,.csv,.txt,.json','aria-label':'Add recording files'});input.onchange=()=>handleFiles(input.files);load.append(input,el('button',{class:'btn',text:'Load demo recording',onclick:()=>loadDemo()}));
  load.ondragover=e=>e.preventDefault();load.ondrop=e=>{e.preventDefault();handleFiles(e.dataTransfer.files);};host.append(load);
  if(!S.signal){host.append(el('p',{text:'Add a recording or load the demo to confirm channels and run a test.'}));return;}
  load.append(recordingSelector());if(S.source?.kind==='demo')load.append(el('p',{class:'note warn',text:'DEMO — synthetic data. Do not use this report for a farm assessment.'}));

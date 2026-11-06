@@ -33,6 +33,7 @@ HOOK = r"""<style>
 .pl-update{position:fixed;left:16px;right:16px;bottom:16px;z-index:200;max-width:720px;margin:0 auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap;
  padding:12px 14px;border-radius:10px;background:#073c68;color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.35);font:14px system-ui,-apple-system,"Segoe UI",sans-serif}
 .pl-update span{flex:1 1 260px}
+body.pl-has-update main{padding-bottom:130px}
 .pl-update button{border:1px solid rgba(255,255,255,.5);background:transparent;color:#fff;border-radius:6px;padding:7px 12px;font:600 13px inherit;cursor:pointer}
 .pl-update button.go{background:#fff;color:#073c68;border-color:#fff}
 @media print{.pl-update,#pl-install{display:none!important}}
@@ -43,21 +44,34 @@ HOOK = r"""<style>
   if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol)) return;
   // reload only after the user chose "Update now" — never on the first visit, when the offline cache first takes over
   var updating = false, reloading = false;
-  navigator.serviceWorker.addEventListener('controllerchange', function () { if (updating && !reloading) { reloading = true; location.reload(); } });
-  function offer(reg) {
-    if (document.getElementById('pl-update') || !reg.waiting) return;
+  var hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (updating) { if (!reloading) { reloading = true; location.reload(); } return; }
+    // updated from another window: offer a reload here too (never on the first visit, when there was no controller before)
+    if (hadController) navigator.serviceWorker.getRegistration().then(function (reg) { var old = document.getElementById('pl-update'); if (old) { old.remove(); document.body.classList.remove('pl-has-update'); } if (reg) offer(reg, 'active'); });
+    hadController = true;
+  });
+  // where = 'waiting': a new version is downloaded and waits for "Update now";
+  //         'active' : another window already switched to it, so this window only needs a reload
+  function offer(reg, where) {
+    if (document.getElementById('pl-update') || (where !== 'active' && !reg.waiting)) return;
     fetch('version.json', { cache: 'no-store' }).then(function (r) { return r.json(); }).catch(function () { return {}; }).then(function (v) {
       var dirty = typeof visitIsDirty === 'function' && visitIsDirty();
       var bar = document.createElement('div'); bar.id = 'pl-update'; bar.className = 'pl-update'; bar.setAttribute('role', 'status');
       var msg = document.createElement('span');
-      msg.textContent = 'ParlorLens v' + (v.version || '?') + ' is ready.' + (v.notes ? ' ' + v.notes : '') +
+      var same = typeof APP === 'object' && v.version && String(v.version) === String(APP.version);
+      msg.textContent = (same ? 'An update to ParlorLens v' + v.version + ' is ready.' : 'ParlorLens v' + (v.version || '?') + ' is ready.') + (v.notes ? ' ' + v.notes : '') +
         (dirty ? ' Save your visit first: updating reloads the app.' : '');
       bar.appendChild(msg);
       function btn(text, cls, fn) { var b = document.createElement('button'); b.type = 'button'; b.textContent = text; if (cls) b.className = cls; b.onclick = fn; bar.appendChild(b); }
       if (dirty && typeof saveVisit === 'function') btn('Save visit', '', function () { saveVisit(); });
-      btn('Update now', 'go', function () { if (reg.waiting) { updating = true; reg.waiting.postMessage('update-now'); } });
-      btn('Later', '', function () { bar.remove(); });
-      document.body.appendChild(bar);
+      btn('Update now', 'go', function () {
+        updating = true;
+        if (reg.waiting) { reg.waiting.postMessage('update-now'); setTimeout(function () { location.reload(); }, 4000); }   // reload follows the switch; the timer is a fallback
+        else location.reload();                                                                                          // already switched in another window
+      });
+      btn('Later', '', function () { bar.remove(); document.body.classList.remove('pl-has-update'); });
+      document.body.appendChild(bar); document.body.classList.add('pl-has-update');
     });
   }
   navigator.serviceWorker.register('sw.js').then(function (reg) {
