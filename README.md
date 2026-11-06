@@ -3,6 +3,8 @@
 Milking-parlor vacuum audit for BioControl VaDia recordings, by Eng. Mohammad Murad.
 Runs in the browser; recordings are analysed on the device and never uploaded.
 
+**Open or install:** https://parlorlens.github.io
+
 ## Releasing a new version
 
 1. Open `ParlorLens.html` in this repository on github.com, click the pencil or **Add file → Upload files**,
