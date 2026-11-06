@@ -4765,8 +4765,8 @@ function observedIncidentsPanel(){
  const panel=el('section',{class:'panel noprint'},[el('h2',{text:'Observed slips and fall-offs'}),el('p',{text:'Enter events you actually saw needing correction, and the cow-milkings you watched on this recording. Count each event once, as either a slip or a fall-off. Leave blank if not observed; enter 0 only when you watched and saw none.'})]);
  const signal=S.signal;
  for(const [key,label] of [['slips','Slips observed'],['falloffs','Fall-offs observed'],['milkings','Cow-milkings observed']]){
-  const input=el('input',{type:'number',min:key==='milkings'?1:0,step:1,value:S.observedIncidents?.[key]??'', 'aria-label':label});
-  input.onchange=()=>{const n=input.value===''?null:Number(input.value);if(n!==null&&(!Number.isSafeInteger(n)||n<(key==='milkings'?1:0))){input.setCustomValidity('Enter a whole number in the allowed range, or leave blank.');input.reportValidity();return;}input.setCustomValidity('');withDecisionRecording(signal,()=>{const before=S.observedIncidents?.[key]??null;S.observedIncidents={...S.observedIncidents,[key]:n};logAudit('Observed incidents','Recording ID '+(recordingIdOf()||'unassigned')+'; '+label+': '+(before??'not entered')+' → '+(n??'not entered'));if(S.auto&&!S.auto.error)S.auto=Object.assign(S.auto,summariseAudit(S.auto.milkings,S.auto.channelEvidence));visitCapture();saveIfConsented();render();});};
+  const input=el('input',{id:'obs_'+key,type:'number',min:key==='milkings'?1:0,step:1,value:S.observedIncidents?.[key]??'', 'aria-label':label});
+  input.onchange=()=>{const n=input.value===''?null:Number(input.value);if(n!==null&&(!Number.isSafeInteger(n)||n<(key==='milkings'?1:0))){input.setCustomValidity('Enter a whole number in the allowed range, or leave blank.');input.reportValidity();return;}input.setCustomValidity('');withDecisionRecording(signal,()=>{const before=S.observedIncidents?.[key]??null;S.observedIncidents={...S.observedIncidents,[key]:n};logAudit('Observed incidents','Recording ID '+(recordingIdOf()||'unassigned')+'; '+label+': '+(before??'not entered')+' → '+(n??'not entered'));if(S.auto&&!S.auto.error)S.auto=Object.assign(S.auto,summariseAudit(S.auto.milkings,S.auto.channelEvidence));visitCapture();saveIfConsented();UI.refocus='obs_'+key;render();});};
   panel.append(el('label',null,[document.createTextNode(label),input]));
  }
  return panel;
@@ -6846,7 +6846,7 @@ function anatomySection(A) {
    before/after comparison, parlor view across units, WhatsApp summary.
    ========================================================================== */
 
-const APP = { name: "ParlorLens", version: "35", by: "Mohammad Murad", tagline: "See what your parlor does to every teat." };
+const APP = { name: "ParlorLens", version: "36", by: "Mohammad Murad", tagline: "See what your parlor does to every teat." };
 
 /* ------------------------------------------------------------ owner profile */
 const OWNER_DEFAULT = {
@@ -8802,6 +8802,7 @@ function render(){
  // a re-render keeps the reader where they were; a new recording glides to its setup
  window.scrollTo({top:keepY,behavior:'instant'});
  if(UI.scrollTo){const id=UI.scrollTo;UI.scrollTo=null;scrollToId(id);}
+ if(UI.refocus){const f=document.getElementById(UI.refocus);UI.refocus=null;if(f)f.focus({preventScroll:true});}
 }
 function primary(text,onclick){return el('button',{class:'btn primary shell-primary',type:'button',text,onclick});}
 function storageChoice(){
@@ -8910,7 +8911,7 @@ function viewVisitWorkspace(host){
  const test=el('select',{'aria-label':'Test to run'});TESTS.forEach(([value,text])=>test.append(el('option',{value,text:value+' — '+text})));test.value=S.testType||'MTT';test.onchange=()=>{S.testType=test.value;S.testChosen=true;S.setupComplete=false;visitCapture();};
  const ref=el('select',{'aria-label':'Reference settings'});[['keep','Keep current / custom settings'],['suite','VaDia Suite defaults'],['guide','VaDia wet-testing guide']].forEach(([value,text])=>ref.append(el('option',{value,text})));ref.value=UI.reference;ref.onchange=()=>{UI.reference=ref.value;};const found=testsFound(),testTiles=el('div',{class:'test-tiles',role:'group','aria-label':'Choose a test'});for(const [value,title] of TESTS){const f=found[value]||{ok:false,note:''};const b=el('button',{type:'button',class:'test-tile','aria-pressed':String(value===test.value),onclick:()=>{test.value=value;test.dispatchEvent(new Event('change'));render();}},[document.createTextNode(value+' — '+title),el('span',{class:'tt-found '+(f.ok?'ok':'na'),text:(f.ok?'Found: ':'Not found: ')+f.note})]);testTiles.append(b);}setup.append(testTiles,...(test.value==='MTT'&&!found.MTT.ok?[el('p',{class:'note warn',text:'No milkings were found in this file. If it is a milking-time test, check the channels above: the short milk tube (teat-end vacuum) tap must be set to the right channel. Otherwise choose the test this file was recorded for.'})]:[]),el('label',{class:'test-select-fallback'},[document.createTextNode('Test'),test]),el('label',null,[document.createTextNode('Reference settings'),ref]));
  const run=primary('Confirm connections & run test',()=>{if(!Object.values(maps).some(s=>s.value!=='OFF')){alert('Assign at least one connected channel.');return;}S.setupChannelsConfirmed=true;S.mappingSource='user';S.testType=test.value;S.testChosen=true;S._ptSuggested=true;run.disabled=true;run.textContent='Analysing…';setTimeout(()=>{finishSetup(ref.value);afterAnalysis();},0);});setup.append(run);host.append(setup);
- if(S.auto&&!S.auto.error){const records=el('section',{class:'shell-panel',id:'cow-records'},el('h3',{text:'Cows, milk and notes'}));if(['MTT','MRT'].includes(S.testType)){const cp=cowPanel(S.auto.milkings);cp.open=true;records.append(cp);}const obs=el('details',null,el('summary',{text:'Slips and fall-offs seen during milking (optional)'}));obs.append(observedIncidentsPanel());records.append(obs);host.append(records);}
+ if(S.auto&&!S.auto.error){const records=el('section',{class:'shell-panel',id:'cow-records'},el('h3',{text:'Cows, milk and notes'}));if(['MTT','MRT'].includes(S.testType)){const cp=cowPanel(S.auto.milkings);cp.open=true;records.append(cp);}const obs=el('details',{open:!!UI.obsOpen},el('summary',{text:'Slips and fall-offs seen during milking (optional)'}));obs.addEventListener('toggle',()=>{UI.obsOpen=obs.open;});obs.append(observedIncidentsPanel());records.append(obs);host.append(records);}
 }
 function viewResultsWorkspace(host){
  if(!S.signal||!S.setupComplete){pageHead(host,'Results','Confirm the recording setup in Visit to calculate results.');host.append(primary('Set up visit',()=>go('visit')));return;}

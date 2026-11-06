@@ -1,1 +1,1 @@
-Asks for cow numbers, milk and notes after each analysis; warns when a file has no milkings; simpler farm report.
+Slips and fall-offs section stays open while you change the numbers.
