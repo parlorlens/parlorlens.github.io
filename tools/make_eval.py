@@ -23,12 +23,12 @@ def rep(a, b):
 
 rep('const APP = { name: "ParlorLens",', 'const EVAL = ' + json.dumps(EV) + ';\nconst APP = { name: "ParlorLens",')
 rep('el("span", { text: APP.name + " v" + APP.version + " by " + APP.by + " · " + APP.copyright }),',
-    'el("span", { text: APP.name + " v" + APP.version + " by " + APP.by + " · " + APP.copyright + " · EVALUATION COPY for " + EVAL.licensee + " (" + EVAL.id + ") — not for distribution" }),')
+    'el("span", { text: APP.name + " v" + APP.version + " by " + APP.by + " · " + APP.copyright + " · EVALUATION COPY for " + EVAL.licensee + " (" + EVAL.id + ") — private use only; not for sale or sharing unless authorised by BioControl (VaDia)" }),')
 rep("+'_v'+APP.version+'_'+dateOf(new Date())+'.'+ext;}", "+'_EVALUATION_v'+APP.version+'_'+dateOf(new Date())+'.'+ext;}")
 rep("function boot(){\n", """function evalExpired(){return new Date()>new Date(EVAL.expires+'T23:59:59');}
 function boot(){
  document.body.classList.add('eval-copy');
- const strip=el('div',{class:'eval-strip'},'Evaluation copy for '+EVAL.licensee+' \\u00b7 valid until '+EVAL.expires+' \\u00b7 '+EVAL.id+' \\u00b7 \\u00a9 Mohammad Murad \\u2014 evaluation only: no copying, modification, reverse engineering or redistribution without written agreement.');
+ const strip=el('div',{class:'eval-strip'},'Evaluation copy for '+EVAL.licensee+' \\u00b7 valid until '+EVAL.expires+' \\u00b7 '+EVAL.id+' \\u00b7 \\u00a9 Mohammad Murad \\u2014 PRIVATE USE ONLY. Not for sale or sharing unless authorised by BioControl (VaDia). No copying, modification or reverse engineering without written agreement.');
  document.body.prepend(strip);
  if(evalExpired()){document.querySelector('.shell').replaceChildren(el('main',null,el('div',{class:'wrap',style:'padding:60px 20px;text-align:center'},[el('h2',{text:'This evaluation copy has expired'}),el('p',{text:'It was issued to '+EVAL.licensee+' and was valid until '+EVAL.expires+' ('+EVAL.id+').'}),el('p',{text:'To continue, contact Eng. Mohammad Murad \\u2014 technical@libanvet.net'})])));document.title=APP.name+' \\u2014 evaluation expired';return;}
 """)
