@@ -6057,7 +6057,8 @@ function cowPanel(M) {
     el("button", { class: "btn", type: "button", text: "Paste a list", onclick: () => { pasteWrap.hidden = !pasteWrap.hidden; } }),
     el("label", { class: "small", style: "display:flex;gap:6px;align-items:center;margin:0" }, [document.createTextNode("Milk in"), unitSel]),
     filled ? el("button", { class: "btn ghost", type: "button", text: "Clear", onclick: () => {
-      S.cowInfo.rows = {}; logAudit("Cow numbers and milk yield cleared", ""); refreshCowInfo(); } }) : null
+      askDialog({ title: "Clear the cow records?", text: "This removes the cow numbers, milk yields and notes entered for this recording.",
+        buttons: [{ label: "Clear them", onClick: () => { S.cowInfo.rows = {}; logAudit("Cow numbers and milk yield cleared", ""); refreshCowInfo(); } }, { label: "Keep them", primary: true }] }); } }) : null
   ]));
   det.append(pasteWrap);
 
@@ -6846,7 +6847,7 @@ function anatomySection(A) {
    before/after comparison, parlor view across units, WhatsApp summary.
    ========================================================================== */
 
-const APP = { name: "ParlorLens", version: "36", by: "Mohammad Murad", tagline: "See what your parlor does to every teat." };
+const APP = { name: "ParlorLens", version: "37", by: "Mohammad Murad", tagline: "See what your parlor does to every teat." };
 
 /* ------------------------------------------------------------ owner profile */
 const OWNER_DEFAULT = {
@@ -8942,7 +8943,7 @@ function viewReportsWorkspace(host){
  if(VISIT.records.some(r=>r.state.source?.kind==='demo'))root.append(el('p',{class:'note crit',text:'DEMO — SYNTHETIC DATA. This report is for demonstration only.'}));
  visitSync(()=>{for(const r of VISIT.records){visitUse(r);const A=S.auto;if(!recordingReady(S))continue;const sec=el('section',{class:'record-report'},[el('h2',{text:r.label+' · '+testName(S.testType)}),el('p',{class:'small',text:(UI.report==='farm'?(S.signal?dateOf(S.signal.t0):''):'Recording ID: '+r.id.slice(0,12))+(A&&!A.error&&A.milkings?' · '+A.milkings.length+(UI.report==='farm'?' milkings':' detected milkings'):'')})]);root.append(sec);
  if(UI.report==='methods'){const temp=el('div');viewMTT(temp);const method=[...temp.querySelectorAll('.atab')].find(n=>/Method and references/.test(n.querySelector('.atab-title')?.textContent||''));if(method){method.classList.remove('off');method.querySelectorAll('.noprint').forEach(n=>n.remove());for(const section of method.querySelectorAll('.rsec'))if(section.querySelector('h2')?.textContent==='Audit trail')section.remove();sec.append(method);}else sec.append(el('p',{text:'No milking-method appendix available for this recording.'}));continue;}
- if(S.testType!=='MTT'){const temp=el('div');({PT:viewPT,FOT:viewFOT,MPE:viewMPE,ST:viewST,MRT:viewMRT}[S.testType]||viewPT)(temp);temp.querySelectorAll('.noprint').forEach(n=>n.remove());sec.append(temp);continue;}
+ if(S.testType!=='MTT'){const temp=el('div');({PT:viewPT,FOT:viewFOT,MPE:viewMPE,ST:viewST,MRT:viewMRT}[S.testType]||viewPT)(temp);temp.querySelectorAll('.noprint').forEach(n=>n.remove());if(UI.report==='farm')plainTestSection(temp);sec.append(temp);continue;}
  if(A.herd.notMTT){sec.append(el('p',{text:'This recording is not suitable for milking performance assessment.'}));continue;}
  if(UI.report==='farm')farmAudienceReport(sec,A,r);else technicalAudienceReport(sec,A);
  }});
@@ -8957,7 +8958,7 @@ const PLAIN_KEEP=[['At a glance','Result'],['What we found',null],["Where the un
  ['Overmilking',null],['Bimodal milking pattern',null],['Pulsation',null],['Cow by cow','Cow by cow'],['Action plan',null]];
 const PLAIN_SOURCE=/et al\.|Penn State|Extension\b|DAIReXNET|Rønningen|Postma|\bMein\b|Becker|Stewart|Chearbhaill|Fernandes|ISO\s?\d|VaDia Suite rule|VaDia manual|manual's|VaDia (?:2|Suite) guide|\bin the studies cited\b/;
 /** remove references to sources and method notes, keeping the advice: first the citing phrases, then any sentence that is only about a source or a rule */
-const PLAIN_METHOD=/No published threshold|Not enough documented information|Expert review required|user-defined threshold|labelled as such|VaDia's rule|cannot report less than/;
+const PLAIN_METHOD=/under Thresholds|VaDia Suite calculates|printed as user-defined|No published threshold|Not enough documented information|Expert review required|user-defined threshold|labelled as such|VaDia's rule|cannot report less than/;
 function plainText(root){
  const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),nodes=[];let n;while((n=w.nextNode()))nodes.push(n);
  const W="[A-ZÍØÉÚ][^\\s,.;()]*",NAME=W+"(?:\\s+"+W+")?(?:\\s+(?:&|and)\\s+"+W+")?";
@@ -8974,6 +8975,14 @@ function plainText(root){
   }
   t.nodeValue=s;
  }
+}
+/** results of the other tests for the farm copy: no method section, no source notes */
+function plainTestSection(root){
+ root.querySelectorAll('.rsec').forEach(x=>{if(/^How it is measured/.test(x.querySelector('h2')?.textContent||''))x.remove();});
+ root.querySelectorAll('.src,.helpbtn,.howto').forEach(n=>n.remove());
+ root.querySelectorAll('td').forEach(td=>{if(/\s\*$/.test(td.textContent))td.textContent=td.textContent.replace(/\s\*$/,'');});   // the footnote the star pointed to is in the technical report
+ plainText(root);
+ root.querySelectorAll('p').forEach(x=>{if(!x.textContent.trim())x.remove();});
 }
 function plainSection(s,title){
  s.querySelectorAll('.helpbtn,.howto,.noprint,.note,.small.muted,p.small').forEach(n=>n.remove());

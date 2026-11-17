@@ -1,0 +1,10 @@
+const { chromium } = require(process.env.PW||'playwright');
+const fs=require('fs'),path=require('path');
+exports.chromium=chromium;
+exports.open=async(b,app,opt={})=>{const ctx=opt.ctx||await b.newContext({acceptDownloads:true,viewport:opt.vp||{width:1366,height:850},colorScheme:opt.scheme||'light'});const p=await ctx.newPage();p.errs=[];p.dialogs=[];
+ p.on('pageerror',e=>p.errs.push(e.message));p.on('console',m=>{if(m.type()==='error')p.errs.push('console: '+m.text());});p.on('dialog',d=>{p.dialogs.push(d.message());d.accept();});
+ await p.goto('file://'+app);await p.waitForTimeout(400);return p;};
+exports.load=async(p,rec)=>{await p.setInputFiles('input[type=file][aria-label="Add recording files"]',rec);await p.waitForTimeout(2500);};
+exports.run=async(p,choice)=>{await p.click('text=Confirm connections & run test');await p.waitForFunction(()=>document.getElementById('pl-dialog')||S.view==='results',null,{timeout:60000});await p.waitForTimeout(500);if(choice&&await p.$('#pl-dialog'))await p.click('#pl-dialog button:has-text("'+choice+'")');await p.waitForTimeout(600);};
+exports.ok=(n,c,d)=>console.log((c?'PASS ':'FAIL ')+n+(d?'  — '+d:''));
+exports.REC=path.join(__dirname,'rec');

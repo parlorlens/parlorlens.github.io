@@ -158,7 +158,8 @@ self.addEventListener('fetch', e => {
 });
 """ % {"v": version, "assets": ", ".join("'./%s'" % a for a in ASSETS)}
 import hashlib
-build = hashlib.sha256(b"".join((out / f).read_bytes() for f in ["index.html", "version.json", "manifest.webmanifest"] + ASSETS)).hexdigest()[:12]
+# the release date is left out, so re-publishing unchanged files does not show users an update bar
+build = hashlib.sha256(b"".join((out / f).read_bytes() for f in ["index.html", "manifest.webmanifest"] + ASSETS) + notes.encode("utf-8")).hexdigest()[:12]
 SW = SW.replace("const CACHE = 'parlorlens-v%s';" % version, "const CACHE = 'parlorlens-v%s-%s';" % (version, build))
 (out / "sw.js").write_text(SW, encoding="utf-8")
 print("ParlorLens v%s web app written to %s" % (version, out))
