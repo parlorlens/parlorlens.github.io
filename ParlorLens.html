@@ -664,6 +664,23 @@ td.n,th.n{text-align:right; font-family:var(--mono); font-variant-numeric:tabula
 #cow-records > h3{margin-bottom:8px}
 #cow-records details{margin-top:12px}
 </style>
+<style>
+/* v38: main menu frozen on the left (across the top on a phone); secondary menu frozen as horizontal tabs */
+@media screen and (min-width:900px){
+ .shell{display:grid;grid-template-columns:190px minmax(0,1fr);align-items:start;background:var(--ground)}
+ .rail{position:sticky;top:var(--tb,53px);height:calc(100vh - var(--tb,53px));min-height:0;padding:14px 10px;border-right:1px solid var(--line);border-bottom:0;background:var(--surface);overflow-y:auto}
+ .rail ol{flex-direction:column;gap:4px;max-width:none;margin:0}
+ .rail li{flex:none}.railbtn{justify-content:flex-start;border-radius:10px}
+ main{max-width:1280px;width:100%;margin:0 auto}
+}
+@media screen and (max-width:899px){.rail{position:sticky;top:var(--tb,53px);z-index:39;background:var(--surface)}}
+.subtabs{position:sticky;top:var(--sub-top,53px);z-index:38;display:flex;gap:6px;overflow-x:auto;padding:8px 0;margin:0 0 14px;background:var(--ground);border-bottom:1px solid var(--line)}
+.subtabs:empty{display:none}
+.subtabs button{flex:none;border:1px solid var(--line);background:var(--surface);color:var(--ink-2);font:600 .86rem var(--display);padding:7px 13px;border-radius:999px;cursor:pointer;white-space:nowrap}
+.subtabs button:hover{color:var(--ink);border-color:var(--accent)}
+.subtabs button[aria-current="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+#farm-panel,#rec-panel,#setup-panel,#cow-records{scroll-margin-top:calc(var(--sub-top,53px) + 62px)}
+</style>
 </head>
 <body>
 <div class="topbar">
@@ -6847,7 +6864,7 @@ function anatomySection(A) {
    before/after comparison, parlor view across units, WhatsApp summary.
    ========================================================================== */
 
-const APP = { name: "ParlorLens", version: "37", by: "Mohammad Murad", tagline: "See what your parlor does to every teat." };
+const APP = { name: "ParlorLens", version: "38", by: "Mohammad Murad", tagline: "See what your parlor does to every teat." };
 
 /* ------------------------------------------------------------ owner profile */
 const OWNER_DEFAULT = {
@@ -8801,6 +8818,7 @@ function render(){
  // Reused technician controls keep their behaviours but cannot create competing primary actions.
  host.querySelectorAll('.btn.primary:not(.shell-primary)').forEach(n=>n.classList.remove('primary'));
  // a re-render keeps the reader where they were; a new recording glides to its setup
+ layoutVars();
  window.scrollTo({top:keepY,behavior:'instant'});
  if(UI.scrollTo){const id=UI.scrollTo;UI.scrollTo=null;scrollToId(id);}
  if(UI.refocus){const f=document.getElementById(UI.refocus);UI.refocus=null;if(f)f.focus({preventScroll:true});}
@@ -8855,6 +8873,11 @@ function askDialog(o){
  ov.addEventListener('keydown',e=>{if(e.key==='Escape'){close();const last=o.buttons[o.buttons.length-1];if(last.onClick)last.onClick();}});
  setTimeout(()=>(row.querySelector('.primary')||row.querySelector('button'))?.focus(),0);
 }
+/** Secondary menu: a horizontal row of tabs that stays in view under the top bar. */
+function subTabs(host,items,current,onPick){const nav=el('nav',{class:'subtabs noprint','aria-label':'Section'});for(const [id,label] of items)nav.append(el('button',{type:'button','aria-current':id===current?'true':null,text:label,onclick:()=>onPick(id)}));host.append(nav);return nav;}
+/** the frozen menus sit under the top bar, whatever height it wraps to */
+function layoutVars(){const tb=document.querySelector('.topbar'),rail=document.querySelector('.rail'),h=tb?tb.offsetHeight:53,wide=matchMedia('(min-width:900px)').matches,r=document.documentElement.style;r.setProperty('--tb',h+'px');r.setProperty('--sub-top',(wide?h:h+(rail?rail.offsetHeight:0))+'px');}
+window.addEventListener('resize',layoutVars);
 function scrollToId(id){requestAnimationFrame(()=>document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'start'}));}
 
 /** What the file looks like for each test, before and after analysis. Milkings are counted with the engine's own finder. */
@@ -8898,12 +8921,14 @@ function keepCowNotes(fn){
 
 function viewVisitWorkspace(host){
  pageHead(host,'Visit','Farm details, recordings and test setup in one place.');
+ const jump=subTabs(host,[],null,id=>scrollToId(id));
+ queueMicrotask(()=>{for(const [id,label] of [['farm-panel','Farm'],['rec-panel','Recordings'],['setup-panel','Channels & test'],['cow-records','Cows, milk & notes']])if(document.getElementById(id))jump.append(el('button',{type:'button',text:label,onclick:()=>scrollToId(id)}));});
  if(!UI.storageAsked){UI.storageAsked=true;host.append(storageChoice());}
  const row=el('div',{class:'shell-actions'},[el('button',{class:'btn',text:'New visit',onclick:newVisit}),el('button',{class:'btn',text:'Open saved visit',onclick:()=>{const f=el('input',{type:'file',accept:'.plvisit'});f.onchange=()=>f.files[0]&&openVisit(f.files[0]);f.click();}})]);if(VISIT.records.length)row.append(el('button',{class:'btn',text:'Save visit',onclick:saveVisit}));host.append(row);
- const farm=el('section',{class:'shell-panel'},el('h3',{text:'Farm'})),fields=el('div',{class:'shell-fields'});
+ const farm=el('section',{class:'shell-panel',id:'farm-panel'},el('h3',{text:'Farm'})),fields=el('div',{class:'shell-fields'});
  for(const [key,label,type] of [['farmName','Farm name','text'],['testDate','Test date','date'],['consultant','Tester','text']]){const input=el('input',{id:'f_'+key,type,value:S.meta[key]||''});input.oninput=()=>{S.meta[key]=input.value;};fields.append(el('label',null,[document.createTextNode(label),input]));}farm.append(fields);const notes=el('textarea',{id:'f_visitNotes',rows:3,placeholder:'For example: liners changed three weeks ago; new milker on unit 2; cows restless at attachment'});notes.value=S.meta.visitNotes||'';notes.oninput=()=>{S.meta.visitNotes=notes.value;};farm.append(el('label',{class:'visit-notes'},[document.createTextNode('Visit notes — printed in the farm report'),notes]));
  const extra=el('details',null,el('summary',{text:'Additional farm and equipment details'})),temp=el('div');viewFarm(temp);temp.querySelectorAll('.page-head,.row.noprint').forEach(n=>n.remove());for(const key of ['farmName','testDate','consultant'])temp.querySelector('#f_'+key)?.parentElement?.remove();extra.append(temp);farm.append(extra);host.append(farm);
- const load=el('section',{class:'shell-panel'},el('h3',{text:'Recordings'})),input=el('input',{type:'file',multiple:true,accept:'.vd6,.vd5,.plvisit,.csv,.txt,.json','aria-label':'Add recording files'});input.onchange=()=>handleFiles(input.files);load.append(input,el('button',{class:'btn',text:'Load demo recording',onclick:()=>loadDemo()}));
+ const load=el('section',{class:'shell-panel',id:'rec-panel'},el('h3',{text:'Recordings'})),input=el('input',{type:'file',multiple:true,accept:'.vd6,.vd5,.plvisit,.csv,.txt,.json','aria-label':'Add recording files'});input.onchange=()=>handleFiles(input.files);load.append(input,el('button',{class:'btn',text:'Load demo recording',onclick:()=>loadDemo()}));
  load.ondragover=e=>e.preventDefault();load.ondrop=e=>{e.preventDefault();handleFiles(e.dataTransfer.files);};host.append(load);
  if(!S.signal){host.append(el('p',{text:'Add a recording or load the demo to confirm channels and run a test.'}));return;}
  load.append(recordingSelector());if(S.source?.kind==='demo')load.append(el('p',{class:'note warn',text:'DEMO — synthetic data. Do not use this report for a farm assessment.'}));
@@ -8932,7 +8957,7 @@ function reportActions(host){const row=el('div',{class:'shell-actions noprint'},
 function refreshVisitAudits(){if(S.setupComplete&&S.signal&&!S.auto){runAutoAudit();runAnalysis();}visitCapture();visitSync(()=>{for(const r of VISIT.records){visitUse(r);if(S.setupComplete&&S.signal&&!S.auto){runAutoAudit();runAnalysis();r.state=visitSnapshot();}}});}
 function viewReportsWorkspace(host){
  refreshVisitAudits();pageHead(host,'Reports','Choose the audience. The commercial offer is always separate.');
- const choose=el('select',{'aria-label':'Report audience'});[['farm','Farm report'],['technical','Technical report'],['methods','Methods & audit trail'],['offer','Commercial offer']].forEach(([value,text])=>choose.append(el('option',{value,text})));choose.value=UI.report;choose.onchange=()=>{UI.report=choose.value;render();};host.append(choose);
+ subTabs(host,[['farm','Farm report'],['technical','Technical report'],['methods','Methods & audit trail'],['offer','Commercial offer']],UI.report,id=>{UI.report=id;render();window.scrollTo({top:0,behavior:'instant'});});
  if(!VISIT.records.length){host.append(el('p',{text:'Add and analyse a recording in Visit first.'}));return;}
  if(UI.report==='technical'){const traces=el('input',{type:'checkbox',checked:!!VISIT.selection['technical-traces']});traces.onchange=()=>{VISIT.selection['technical-traces']=traces.checked;render();};host.append(el('label',{class:'report-choice noprint'},[traces,el('span',{text:'Include a vacuum trace for every milking (longer report)'})]));}
  reportActions(host);const root=el('div',{class:'report audience-report'});host.append(root);if(UI.report==='farm')farmReportHeader(root);else reportHeader(root,{farm:'Farm report',technical:'Technical report',methods:'Methods & audit trail',offer:'Commercial offer'}[UI.report]);
@@ -9052,7 +9077,7 @@ function viewThresholdsForVisit(host){
 }
 function viewToolsWorkspace(host){
  pageHead(host,'Tools','Technician controls and evidence. These screens are not client reports.');const tools={markers:['Markers',viewMarkers],thresholds:['Thresholds',viewThresholdsForVisit],channels:['Advanced channels',viewChannels],analysis:['Diagnostic analysis',viewAnalysis],report:['Inspect one milking',viewReport],guide:['Field guide',viewGuide],compareVisits:['Before / after comparison',viewCompare],owner:['Report owner',h=>h.append(ownerPanel())],parts:['Commercial offer settings',h=>h.append(partsMapPanel())]};
- const select=el('select',{'aria-label':'Technician tool'});Object.entries(tools).forEach(([value,[text]])=>select.append(el('option',{value,text})));select.value=UI.tool;select.onchange=()=>{UI.tool=select.value;render();};host.append(select);
+ subTabs(host,Object.entries(tools).map(([id,[text]])=>[id,text]),tools[UI.tool]?UI.tool:'markers',id=>{UI.tool=id;render();window.scrollTo({top:0,behavior:'instant'});});
  const area=el('div',{class:'tool-content'});host.append(area);(tools[UI.tool]||tools.markers)[1](area);area.querySelectorAll('.page-head').forEach(n=>n.remove());
  if(UI.storageAsked)host.append(el('details',{class:'shell-panel'},[el('summary',{text:'Device storage preference'}),storageChoice()]));
 }

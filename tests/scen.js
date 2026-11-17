@@ -37,7 +37,7 @@ const JUNK=/\bundefined\b|\bNaN\b|\[object Object\]|\bnull\b|Infinity/;
  await p.emulateMedia({media:'print'});await p.evaluate(()=>window.dispatchEvent(new Event('beforeprint')));await p.pdf({path:'farm-visit.pdf',format:'A4',printBackground:true});await p.evaluate(()=>window.dispatchEvent(new Event('afterprint')));await p.emulateMedia({media:'screen'});
  const pages=(fs.readFileSync('farm-visit.pdf').toString('latin1').match(/\/Type\s*\/Page[^s]/g)||[]).length;console.log('INFO farm report prints on',pages,'pages');
  const [dl]=await Promise.all([p.waitForEvent('download',{timeout:90000}),p.click('text=Export Word >> nth=0')]);const wf=dl.suggestedFilename();await dl.saveAs('farm.docx');
- ok('D5 Word export of the farm report',/Haddad_Farm_Farm_report_v37/.test(wf)&&fs.statSync('farm.docx').size>50000,wf+' '+fs.statSync('farm.docx').size+' bytes');
+ ok('D5 Word export of the farm report',/Haddad_Farm_Farm_report_v38/.test(wf)&&fs.statSync('farm.docx').size>50000,wf+' '+fs.statSync('farm.docx').size+' bytes');
  for(const aud of ['technical','methods','offer']){const t=await p.evaluate(a=>{UI.report=a;go('reports');return document.querySelector('#views').innerText;},aud);ok('D6 '+aud+' report clean',!JUNK.test(t)&&t.length>300,(t.match(JUNK)||[''])[0]);}
  // --- E: re-run a test keeps cow records, asks nothing
  await p.evaluate(()=>{go('visit');});await p.selectOption('select[aria-label="Active recording"]',{index:0});await p.waitForTimeout(500);

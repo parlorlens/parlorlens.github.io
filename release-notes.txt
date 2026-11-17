@@ -1,1 +1,1 @@
-Farm report: pulsator results in plain language; Clear in cow records asks first.
+Menus stay in view: main menu on the left, section tabs across the top.
