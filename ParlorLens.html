@@ -688,6 +688,7 @@ td.n,th.n{text-align:right; font-family:var(--mono); font-variant-numeric:tabula
 .subtabs button[aria-current="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
 #farm-panel,#rec-panel,#setup-panel,#cow-records{scroll-margin-top:calc(var(--sub-top,53px) + 62px)}
 </style>
+<style>.ch-check{display:block;font-size:.76rem;margin-top:4px}.ch-check.ok{color:var(--good)}.ch-check.warn{color:var(--warn);font-weight:600}.damped-note{border-left:3px solid var(--warn);background:var(--warn-soft);padding:10px 12px;border-radius:0 4px 4px 0;color:var(--ink)}</style>
 </head>
 <body>
 <div class="topbar">
@@ -1103,12 +1104,12 @@ function parseVD6(buffer, fileName) {
     for (let s = 0; s < fs; s++) for (let c = 0; c < 4; c++) {
       const v = dv.getInt16(o, true) / VD6.SCALE; o += 2;
       ch[c][base + s] = v;
-      if (v >= -5 && v <= 110) plaus++;
+      if (v >= -60 && v <= 110) plaus++;
     }
   }
   const plausRatio = plaus / (n * 4);
   checks.push({ name: "Physical plausibility", value: (plausRatio * 100).toFixed(3) + " % of samples",
-    pass: plausRatio >= 0.999, detail: "Decoded samples inside −5 to 110 kPa" });
+    pass: plausRatio >= 0.999, detail: "Decoded samples inside −60 to 110 kPa (negative values are positive pressure)" });
   if (plausRatio < 0.999) refuse("Only " + (plausRatio * 100).toFixed(2) + " % of decoded values are physically plausible.");
 
   const passed = checks.filter(c => c.pass).length;
@@ -4734,6 +4735,20 @@ function analyseMilkingVD(m, k, arr, fs, prev, ov) {
 function _med(a) { const b = a.filter(v => v != null && isFinite(v)).sort((x, y) => x - y); return b.length ? b[Math.floor(b.length / 2)] : null; }
 function _range(a) { const b = a.filter(v => v != null && isFinite(v)).sort((x, y) => x - y); return b.length ? [b[0], b[b.length - 1]] : null; }
 
+/** Is the teat-end channel damped? Its ripple within each second, mid-attachment, against the liveliest other channel.
+    A working short-milk-tube tap moves with every pulsation cycle; under 0.6 kPa while another channel moves over 3 kPa is damping. */
+function smtDamped(arr, found, fs) {
+  const others = [arr.spt, arr.mpc, arr.mpc2].filter(Boolean);
+  if (!arr.smt || !others.length) return { damped: false };
+  const per = found.filter(m => m.end - m.att > 60 * fs).sort((a, b) => (b.end - b.att) - (a.end - a.att)).slice(0, 5);
+  if (!per.length) return { damped: false };
+  const rip = [], oth = [];
+  per.forEach(m => { const a = m.att + 30 * fs, b = Math.min(m.end - 10 * fs, m.att + 120 * fs); if (b - a < 10 * fs) return;
+    rip.push(channelSwing(arr.smt, a, b, fs)); oth.push(Math.max.apply(null, others.map(o => channelSwing(o, a, b, fs)))); });
+  if (!rip.length) return { damped: false };
+  const ripple = _med(rip), other = _med(oth);
+  return { damped: ripple < 0.6 && other > 3, ripple, other };
+}
 function runAutoAudit() {
   const s = S.signal; if (!s) { S.auto = null; return null; }
   // Channel roles: a placement the user confirmed always wins. The waveform-based
@@ -4756,6 +4771,11 @@ function runAutoAudit() {
   const found = vdFindMilkings(arr.smt, s.fs, s.n);
   for (const m of found) if (!m.real && S.confirmedMilkings?.[m.att]) { m.real=true; m.operatorIncluded=true; }
 
+  // A damped teat-end tap (milk or water in the tube, a blocked needle) smooths the flow dip away. The dip rule cannot
+  // judge such a signal, so periods it alone rejected are kept, flagged, and the fast teat-end figures are not graded.
+  const damp = smtDamped(arr, found, s.fs);
+  if (damp.damped) for (const m of found) if (!m.real && m.why.length && m.why.every(w => /^teat-end vacuum dipped only/.test(w))) { m.real = true; m.dampedSMT = true; }
+  if (damp.damped) logAudit("Teat-end channel damped", "Median ripple " + fmt(damp.ripple, 2) + " kPa per second on the teat-end channel against " + fmt(damp.other, 1) + " kPa on another channel during attachment; the 'dip' rule is not applied and cyclic fluctuation, vacuum drops, let-down and attachment figures are not graded");
   const real = found.filter(m => m.real);
   const rejected = found.filter(m => !m.real).map(m => ({ att: m.att, end: m.end, start: clockAt(m.att), seconds: m.seconds, dip: m.dip, why: m.why }));
   // periods the operator included against the rules keep their original rejection details, so the report can list the decision
@@ -4770,6 +4790,7 @@ function runAutoAudit() {
   real.forEach((m, k) => milkings.push(analyseMilkingVD(m, k, arr, s.fs, k ? real[k - 1] : null, (S.handMarkers || {})[m.att])));
   logAudit("Markers placed automatically", milkings.length + " milkings; automatic marker estimates use the implemented chapter 22 rules; " + milkings.filter(c=>c.hand && c.hand.length).length + " milkings have hand-adjusted markers, which take precedence" +
     (included.length ? "; " + included.length + " included by the operator against the detection rules (flagged for review)" : ""));
+  if (damp.damped) milkings.forEach(c => { c.dampedSMT = true; });
   const A = summariseAudit(milkings, chan ? chan.evidence : []);
   A.rejected = rejected; A.included = included; A.mapCheck = mapCheck;
   return A;
@@ -4854,12 +4875,18 @@ function summariseAudit(milkings, channelEvidence) {
   H.Y = yieldHerd(milkings, H);
 
   const cards = buildCards(milkings, H);
+  const dampedSMT = milkings.some(c => c.dampedSMT);
+  if (dampedSMT) [].concat(cards.milker, cards.vacuum, cards.liner).forEach(x => {
+    if (!["cvf", "ivf", "slips", "letdown", "attach", "smtOM"].includes(x.id)) return;
+    x.status = "info"; x.cows = []; x.checks = ["Clear or replace the teat-end measuring tube and needle (milk or water in the tube, a kink or a blocked tap damp the signal), then repeat the test."];
+    x.farmer = "Not assessed: the teat-end channel was damped in this recording, so this figure cannot be read from it."; });
   const all = [].concat(cards.milker, cards.vacuum, cards.liner, cards.pulsation);
   const crit = all.filter(x => x.status === "crit").length, warn = all.filter(x => x.status === "warn").length;
   const prevA = S.auto && S.auto.milkings === milkings ? S.auto : null;
   S.auto = { milkings, herd: H, cards, channelEvidence, rejected: prevA ? prevA.rejected : [], included: prevA ? prevA.included || [] : [], mapCheck: prevA ? prevA.mapCheck : null,
              counts: { crit, warn, ok: all.filter(x => x.status === "ok").length, info: all.filter(x => x.status === "info").length },
              verdict: crit ? "crit" : warn ? "warn" : "ok", generatedAt: new Date() };
+  if (dampedSMT) S.auto.dampedSMT = true;
   logAudit("Automatic audit complete", milkings.length + " milkings · " + crit + " items at action level, " + warn + " outside the reference");
   return S.auto;
 }
@@ -6871,7 +6898,7 @@ function anatomySection(A) {
    before/after comparison, parlor view across units, WhatsApp summary.
    ========================================================================== */
 
-const APP = { name: "ParlorLens", version: "39", by: "Mohammad Murad", copyright: "© 2026 Mohammad Murad. All rights reserved.", tagline: "See what your parlor does to every teat." };
+const APP = { name: "ParlorLens", version: "40", by: "Mohammad Murad", copyright: "© 2026 Mohammad Murad. All rights reserved.", tagline: "See what your parlor does to every teat." };
 
 /* ------------------------------------------------------------ owner profile */
 const OWNER_DEFAULT = {
@@ -8849,7 +8876,7 @@ function boot(){
 }
 function acceptParse(r){
  S.testWins={};S.testSel={};S._swingFor=null;S._availFor=null;S._ptSuggested=false;S.fotCh=null;S.stCh=null;S.ptLabels={};
- if(r.signal){UI.scrollTo='setup-panel';S.signal=r.signal;S.tables=null;S.visible=[true,true,true,true];S.auto=null;S.results=null;S.observedIncidents={};S.confirmedMilkings={};S.cowInfo={unit:'L',rows:{}};S.handMarkers={};S.reviewed={};S.markerKey=null;S.markerAuto={};S.mappingSource='default';S.setupComplete=false;S.setupChannelsConfirmed=false;S.testChosen=false;S.pendingCowExport=null;S.sessions=[];S.sessionIdx=0;S.markers={};const guess=autoIdentifyChannels();if(guess)S.mapping=guess.mapping;}
+ if(r.signal){UI.scrollTo='setup-panel';S.signal=r.signal;S.tables=null;S.visible=[true,true,true,true];S.auto=null;S.results=null;S.observedIncidents={};S.confirmedMilkings={};S.cowInfo={unit:'L',rows:{}};S.handMarkers={};S.reviewed={};S.markerKey=null;S.markerAuto={};S.mappingSource='default';S.setupComplete=false;S.setupChannelsConfirmed=false;S.testChosen=false;S.pendingCowExport=null;S.sessions=[];S.sessionIdx=0;S.markers={};S.mapping=standardLayout();}
  else if(r.tables){S.tables=r.tables;S.signal=null;S.markers={};runAnalysis();}S.source=r.source;
  if(!VISIT.busy)go(r.signal?'visit':'analysis');
 }
@@ -8926,6 +8953,29 @@ function keepCowNotes(fn){
  return out;
 }
 
+const DAMPED_NOTE='The teat-end vacuum tube was damped in this recording (milk or water in the tube, a kink or a blocked tap). Milkings were found from cluster-on and cluster-off; average vacuum levels are valid, but vacuum fluctuation, vacuum drops, let-down and attachment could not be measured.';
+/** waveform evidence for the recording in use (cached per recording) */
+function channelEvidence(){const s=S.signal;if(!s)return null;if(S._evFor!==s){S._evFor=s;S._ev=null;try{S._ev=autoIdentifyChannels();}catch(e){}}return S._ev;}
+/** Default connections: CH1 pulsation, CH2 teat end, CH3 and CH4 mouthpiece. A channel with no signal is set to
+    not connected, and the pulsation role moves only when another channel clearly is the pulsation tube and CH1 is not. */
+function standardLayout(){
+ const m={0:'SPT',1:'SMT',2:'MPC',3:'MPC2'},g=channelEvidence();if(!g)return m;
+ const E=g.evidence,live=e=>e.liveAll>3||e.max>3;
+ E.forEach(e=>{if(!live(e))m[e.c]='OFF';});
+ const puls=E.filter(e=>e.swing>20).sort((a,b)=>b.swing-a.swing);
+ if(puls.length&&!(E[0].swing>20)){const order=['SMT','MPC','MPC2'];let k=0;for(let c=0;c<4;c++){if(c===puls[0].c)m[c]='SPT';else if(live(E[c]))m[c]=order[k++]||'OFF';}}
+ return m;
+}
+/** does the signal on a channel fit the connection chosen for it? */
+function channelCheck(c){
+ const g=channelEvidence(),role=S.mapping[c]||'OFF';if(!g)return {ok:true,text:''};
+ const e=g.evidence[c],live=e.liveAll>3||e.max>3,liveliest=Math.max.apply(null,g.evidence.map(x=>x.swing));
+ if(role==='OFF')return live?{ok:false,text:'Carries vacuum, but is set to not connected'}:{ok:true,text:'No signal'};
+ if(!live)return {ok:false,text:'No signal on this channel'};
+ if(role==='SPT')return e.swing>20?{ok:true,text:'Pulsates like a pulsation tube'}:{ok:false,text:'Does not pulsate like a pulsation tube'};
+ if(role==='SMT'&&e.swing<0.6&&liveliest>3)return {ok:false,text:'Very smooth signal: check this tube for milk, water or a blockage'};
+ return {ok:true,text:'Signal present'};
+}
 function viewVisitWorkspace(host){
  pageHead(host,'Visit','Farm details, recordings and test setup in one place.');
  const jump=subTabs(host,[],null,id=>scrollToId(id));
@@ -8940,7 +8990,7 @@ function viewVisitWorkspace(host){
  if(!S.signal){host.append(el('p',{text:'Add a recording or load the demo to confirm channels and run a test.'}));return;}
  load.append(recordingSelector());if(S.source?.kind==='demo')load.append(el('p',{class:'note warn',text:'DEMO — synthetic data. Do not use this report for a farm assessment.'}));
  const setup=el('section',{class:'shell-panel',id:'setup-panel'},[el('h3',{text:'Channels and test'}),el('p',{text:S.setupChannelsConfirmed?'These are the confirmed connections for this recording.':'Channel roles are waveform suggestions. Check them against the actual hose connections before running.'})]);
- const maps={};const grid=el('div',{class:'shell-fields'});for(let c=0;c<4;c++){const select=el('select',{'aria-label':'CH'+(c+1)+' connection'});ROLES.forEach(([value,text])=>select.append(el('option',{value,text})));select.value=S.mapping[c]||'OFF';maps[c]=select;select.onchange=()=>{S.mapping[c]=select.value;S.mappingSource='user';S._availFor=null;S.setupChannelsConfirmed=false;S.setupComplete=false;S.auto=null;visitCapture();render();};grid.append(el('label',null,[document.createTextNode('CH'+(c+1)),channelPreview(c),select]));}setup.append(grid);
+ const maps={};const grid=el('div',{class:'shell-fields'});for(let c=0;c<4;c++){const select=el('select',{'aria-label':'CH'+(c+1)+' connection'});ROLES.forEach(([value,text])=>select.append(el('option',{value,text})));select.value=S.mapping[c]||'OFF';maps[c]=select;select.onchange=()=>{S.mapping[c]=select.value;S.mappingSource='user';S._availFor=null;S.setupChannelsConfirmed=false;S.setupComplete=false;S.auto=null;visitCapture();render();};const chk=channelCheck(c);grid.append(el('label',null,[document.createTextNode('CH'+(c+1)),channelPreview(c),select,el('span',{class:'ch-check '+(chk.ok?'ok':'warn'),text:chk.text})]));}setup.append(grid);
  const test=el('select',{'aria-label':'Test to run'});TESTS.forEach(([value,text])=>test.append(el('option',{value,text:value+' — '+text})));test.value=S.testType||'MTT';test.onchange=()=>{S.testType=test.value;S.testChosen=true;S.setupComplete=false;visitCapture();};
  const ref=el('select',{'aria-label':'Reference settings'});[['keep','Keep current / custom settings'],['suite','VaDia Suite defaults'],['guide','VaDia wet-testing guide']].forEach(([value,text])=>ref.append(el('option',{value,text})));ref.value=UI.reference;ref.onchange=()=>{UI.reference=ref.value;};const found=testsFound(),testTiles=el('div',{class:'test-tiles',role:'group','aria-label':'Choose a test'});for(const [value,title] of TESTS){const f=found[value]||{ok:false,note:''};const b=el('button',{type:'button',class:'test-tile','aria-pressed':String(value===test.value),onclick:()=>{test.value=value;test.dispatchEvent(new Event('change'));render();}},[document.createTextNode(value+' — '+title),el('span',{class:'tt-found '+(f.ok?'ok':'na'),text:(f.ok?'Found: ':'Not found: ')+f.note})]);testTiles.append(b);}setup.append(testTiles,...(test.value==='MTT'&&!found.MTT.ok?[el('p',{class:'note warn',text:'No milkings were found in this file. If it is a milking-time test, check the channels above: the short milk tube (teat-end vacuum) tap must be set to the right channel. Otherwise choose the test this file was recorded for.'})]:[]),el('label',{class:'test-select-fallback'},[document.createTextNode('Test'),test]),el('label',null,[document.createTextNode('Reference settings'),ref]));
  const run=primary('Confirm connections & run test',()=>{if(!Object.values(maps).some(s=>s.value!=='OFF')){alert('Assign at least one connected channel.');return;}S.setupChannelsConfirmed=true;S.mappingSource='user';S.testType=test.value;S.testChosen=true;S._ptSuggested=true;run.disabled=true;run.textContent='Analysing…';setTimeout(()=>{finishSetup(ref.value);afterAnalysis();},0);});setup.append(run);host.append(setup);
@@ -8949,6 +8999,7 @@ function viewVisitWorkspace(host){
 function viewResultsWorkspace(host){
  if(!S.signal||!S.setupComplete){pageHead(host,'Results','Confirm the recording setup in Visit to calculate results.');host.append(primary('Set up visit',()=>go('visit')));return;}
  viewDashboard(host);
+ if(S.auto&&S.auto.dampedSMT)host.querySelector('.page-head')?.after(el('p',{class:'note warn',text:DAMPED_NOTE}));
  host.querySelectorAll('.dash-actions').forEach(n=>n.remove());
  const action=el('div',{class:'shell-actions'},primary('Create report',()=>go('reports')));host.querySelector('.page-head')?.after(action);
  const gauges=host.querySelector('.dash-gauges');if(gauges){const status=reportStatus(S.auto);gauges.querySelector(':scope > p')?.remove();gauges.prepend(el('p',{class:status.final?'note':'note warn',text:status.final?'Review checks complete. Colours use the selected recording references.':'Provisional — '+status.why.join('; ')+'. Coloured zones are references, not a final verdict.'}));
@@ -8977,6 +9028,7 @@ function viewReportsWorkspace(host){
  if(UI.report==='methods'){const temp=el('div');viewMTT(temp);const method=[...temp.querySelectorAll('.atab')].find(n=>/Method and references/.test(n.querySelector('.atab-title')?.textContent||''));if(method){method.classList.remove('off');method.querySelectorAll('.noprint').forEach(n=>n.remove());for(const section of method.querySelectorAll('.rsec'))if(section.querySelector('h2')?.textContent==='Audit trail')section.remove();sec.append(method);}else sec.append(el('p',{text:'No milking-method appendix available for this recording.'}));continue;}
  if(S.testType!=='MTT'){const temp=el('div');({PT:viewPT,FOT:viewFOT,MPE:viewMPE,ST:viewST,MRT:viewMRT}[S.testType]||viewPT)(temp);temp.querySelectorAll('.noprint').forEach(n=>n.remove());if(UI.report==='farm')plainTestSection(temp);sec.append(temp);continue;}
  if(A.herd.notMTT){sec.append(el('p',{text:'This recording is not suitable for milking performance assessment.'}));continue;}
+ if(A.dampedSMT)sec.append(el('p',{class:'damped-note',text:DAMPED_NOTE}));
  if(UI.report==='farm')farmAudienceReport(sec,A,r);else technicalAudienceReport(sec,A);
  }});
  if(UI.report==='farm')root.append(farmReportClose());

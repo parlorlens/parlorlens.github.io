@@ -1,1 +1,1 @@
-Copyright notice added.
+Finds milkings when the teat-end tube is damped and says so; standard channel layout checked automatically; reads pressure recordings.
