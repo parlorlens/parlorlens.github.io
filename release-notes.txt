@@ -1,1 +1,1 @@
-Menus stay in view: main menu on the left, section tabs across the top.
+Copyright notice added.

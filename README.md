@@ -24,3 +24,7 @@ files on a laptop), icons, and `ParlorLens-vNN.html` — the plain single file, 
 ## One-time setup
 
 Settings → Pages → Build and deployment → Source: **GitHub Actions**.
+
+## Copyright
+
+© 2026 Mohammad Murad. All rights reserved. This is proprietary software, not open source — see `LICENSE`.

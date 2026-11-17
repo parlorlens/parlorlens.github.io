@@ -1,4 +1,10 @@
 <!doctype html>
+<!--
+  ParlorLens — milking-parlor vacuum audit.
+  Copyright (c) 2026 Mohammad Murad. All rights reserved.
+  No part of this software may be copied, modified, reverse engineered, redistributed or used to build
+  another product without the prior written agreement of the author. Contact: technical@libanvet.net
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -671,6 +677,7 @@ td.n,th.n{text-align:right; font-family:var(--mono); font-variant-numeric:tabula
  .rail{position:sticky;top:var(--tb,53px);height:calc(100vh - var(--tb,53px));min-height:0;padding:14px 10px;border-right:1px solid var(--line);border-bottom:0;background:var(--surface);overflow-y:auto}
  .rail ol{flex-direction:column;gap:4px;max-width:none;margin:0}
  .rail li{flex:none}.railbtn{justify-content:flex-start;border-radius:10px}
+ .rail-note{display:block;position:absolute;left:10px;right:10px;bottom:10px;margin:0;font-size:.7rem;line-height:1.4}
  main{max-width:1280px;width:100%;margin:0 auto}
 }
 @media screen and (max-width:899px){.rail{position:sticky;top:var(--tb,53px);z-index:39;background:var(--surface)}}
@@ -700,7 +707,7 @@ td.n,th.n{text-align:right; font-family:var(--mono); font-variant-numeric:tabula
   <nav class="rail noprint" aria-label="Workflow">
     <ol id="railList"></ol>
     <div class="rail-note" id="railNote">
-      All parsing and analysis happens in this browser. Nothing is uploaded.
+      All parsing and analysis happens in this browser. Nothing is uploaded.<br><br>ParlorLens © 2026 Mohammad Murad. All rights reserved. No copying, modification or redistribution without written agreement.
     </div>
   </nav>
 
@@ -6864,7 +6871,7 @@ function anatomySection(A) {
    before/after comparison, parlor view across units, WhatsApp summary.
    ========================================================================== */
 
-const APP = { name: "ParlorLens", version: "38", by: "Mohammad Murad", tagline: "See what your parlor does to every teat." };
+const APP = { name: "ParlorLens", version: "39", by: "Mohammad Murad", copyright: "© 2026 Mohammad Murad. All rights reserved.", tagline: "See what your parlor does to every teat." };
 
 /* ------------------------------------------------------------ owner profile */
 const OWNER_DEFAULT = {
@@ -6922,7 +6929,7 @@ function renderBrand() {
 /** footer repeated on every printed page */
 function printFooter() {
   return el("div", { class: "print-footer" }, [
-    el("span", { text: APP.name + " v" + APP.version + " by " + APP.by }),
+    el("span", { text: APP.name + " v" + APP.version + " by " + APP.by + " · " + APP.copyright }),
     el("span", { text: "Prepared by " + ownerLine() + (ownerContact() ? " · " + ownerContact() : "") })]);
 }
 /** "your contact for this report" block */
